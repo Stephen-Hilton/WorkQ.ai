@@ -26,8 +26,9 @@ I use this for all of my AI projects, usually by merging it into my apps' admin 
 - Python 3.12+, [`uv`](https://docs.astral.sh/uv/) (`brew install uv`)
 - Node 20+ and [`pnpm`](https://pnpm.io/) (`brew install pnpm`)
 - [AWS SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html) (`brew install aws-sam-cli`)
-- [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html), configured (`aws configure`)
+- [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) (`brew install awscli` — or the official `.pkg` from the link). Then run `aws configure --profile requestqueue` (or your profile name of choice; matches `REQUESTQUEUE_AWS_PROFILE` in `.env`).
 - [GitHub CLI](https://cli.github.com/) (`brew install gh`)
+- `jq` (`brew install jq`) — used by the deploy + whitelist scripts
 - An AWS account
 - A GitHub repo you want claude to operate on (and a fine-grained PAT — see below)
 - *Optional:* a custom domain + an ACM certificate in `us-east-1` covering both `work.<domain>` and `api.<domain>` (or a wildcard `*.<domain>`)
@@ -57,9 +58,11 @@ This is the server that will monitor for new queued work and run `claude code` a
 
 **Prereqs:**
 
-- Same Python + `uv`
-- `git`, `gh`, `claude` (Claude Code)
-- The two `REQUESTQUEUE_SERVICE_USER_*` lines from your deploy machine's `.env` (no AWS keys needed at runtime)
+- Same Python + `uv` as the deploy machine.
+- `git` (usually pre-installed; otherwise `apt install git` / `brew install git`).
+- [GitHub CLI](https://cli.github.com/) (`brew install gh` / `apt install gh`). Run `gh auth login` once.
+- [Claude Code](https://docs.claude.com/en/docs/claude-code) — install per their docs (`npm install -g @anthropic-ai/claude-code` is one supported path). The `claude` binary needs to be on PATH for `local/build` to invoke it.
+- The two `REQUESTQUEUE_SERVICE_USER_*` lines from your deploy machine's `.env` (no AWS keys needed at runtime).
 
 <br>
 
