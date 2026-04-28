@@ -9,6 +9,9 @@ __pycache__/
 # Distribution / packaging
 .Python
 build/
+# ...but keep our own local/build/ Python module:
+!local/build/
+!local/build/*.py
 develop-eggs/
 dist/
 downloads/
