@@ -25,7 +25,7 @@ _MUTABLE_FIELDS = {"reqstatus", "reqarea", "reqpr", "request", "response"}
 def _service_user_email() -> str:
     import os
 
-    return os.environ.get("SERVICE_USER_EMAIL", "service-local-monitor@workq.internal")
+    return os.environ.get("SERVICE_USER_EMAIL", "service-local-monitor@requestqueue.internal")
 
 
 def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:

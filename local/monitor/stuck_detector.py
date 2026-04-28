@@ -1,7 +1,7 @@
 """Stuck-build detector: zombie records that need force-failing.
 
 A build is "stuck" if its `reqstatus` is `building` or `planning` and the
-latest `timelog.ts` is older than `WORKQ_BUILD_TIMEOUT_SECONDS + 60s`.
+latest `timelog.ts` is older than `REQUESTQUEUE_BUILD_TIMEOUT_SECONDS + 60s`.
 This catches:
   - local server reboot mid-build,
   - local/build segfault before status writeback,

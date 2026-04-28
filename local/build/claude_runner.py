@@ -4,7 +4,7 @@ Runs:
     claude --dangerously-skip-permissions -p '<prompt>'
 
 Captures stdout, returns exit code + stdout text. Honors
-`WORKQ_BUILD_TIMEOUT_SECONDS` via `subprocess.run(timeout=…)`.
+`REQUESTQUEUE_BUILD_TIMEOUT_SECONDS` via `subprocess.run(timeout=…)`.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 # HTML comment fence claude can write at the end of its response, per spec
 # DECISION 14. Tolerant of surrounding whitespace.
 _FENCE_RE = re.compile(
-    r"<!--\s*workq:status\s*=\s*([a-z_]+)\s*-->",
+    r"<!--\s*requestqueue:status\s*=\s*([a-z_]+)\s*-->",
     re.IGNORECASE,
 )
 _VALID_FENCE_VALUES = {"pending_review", "complete", "failed"}
@@ -90,7 +90,7 @@ def run(
 
 
 def parse_fence(text: str) -> str | None:
-    """Find the LAST workq:status fence in the output.
+    """Find the LAST requestqueue:status fence in the output.
 
     We only inspect the last 2 KB so a stray comment in the middle of a long
     response can't accidentally trigger the fence.

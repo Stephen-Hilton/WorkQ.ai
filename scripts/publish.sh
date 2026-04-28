@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# scripts/publish.sh — full WorkQ.ai deploy pipeline.
+# scripts/publish.sh — full RequestQueue.ai deploy pipeline.
 #
 # Phases:
 #   1. Validate config/prompt_parts.yaml.
 #   2. (skipped if --prompts-only) sam build + sam deploy.
-#      Writes .workq.outputs.json (snake_case keys mapped from CFN PascalCase).
+#      Writes .requestqueue.outputs.json (snake_case keys mapped from CFN PascalCase).
 #   3. (--infra-only: stop here)
 #   4. (skipped if --prompts-only) pnpm/npm build the webapp + s3 sync.
-#   5. Derive app.json from config/prompt_parts.yaml + WORKQ_DISPLAY_TIMEZONE,
+#   5. Derive app.json from config/prompt_parts.yaml + REQUESTQUEUE_DISPLAY_TIMEZONE,
 #      upload to s3://<bucket>/config/app.json. The full prompt_parts.yaml is
 #      NOT uploaded — only the area names reach the webapp, and only via
 #      app.json. See config/README.md.
@@ -22,7 +22,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${REPO_ROOT}/.env"
-OUTPUTS_FILE="${REPO_ROOT}/.workq.outputs.json"
+OUTPUTS_FILE="${REPO_ROOT}/.requestqueue.outputs.json"
 
 INFRA_ONLY=0
 PROMPTS_ONLY=0
@@ -45,8 +45,8 @@ set -a; source "${ENV_FILE}"; set +a
 command -v aws >/dev/null || err "aws CLI not installed"
 command -v jq >/dev/null || err "jq not installed (brew install jq)"
 
-REGION="${WORKQ_AWS_REGION:-us-east-1}"
-STACK="${WORKQ_STACK_NAME:-workq}"
+REGION="${REQUESTQUEUE_AWS_REGION:-us-east-1}"
+STACK="${REQUESTQUEUE_STACK_NAME:-requestqueue}"
 
 # Pick package manager: prefer pnpm, fall back to npm.
 if command -v pnpm >/dev/null 2>&1; then PM="pnpm"; else PM="npm"; fi
@@ -66,16 +66,16 @@ if (( PROMPTS_ONLY == 0 )); then
   command -v sam >/dev/null || err "sam CLI not installed (brew install aws-sam-cli)"
 
   PARAM_OVERRIDES="StackName=${STACK}"
-  if [[ -n "${WORKQ_EMAIL_WHITELIST:-}" ]]; then
-    PARAM_OVERRIDES+=" EmailWhitelistSeed=${WORKQ_EMAIL_WHITELIST}"
+  if [[ -n "${REQUESTQUEUE_EMAIL_WHITELIST:-}" ]]; then
+    PARAM_OVERRIDES+=" EmailWhitelistSeed=${REQUESTQUEUE_EMAIL_WHITELIST}"
   fi
-  if [[ -n "${WORKQ_CUSTOM_DOMAIN:-}" ]]; then
-    PARAM_OVERRIDES+=" CustomDomain=${WORKQ_CUSTOM_DOMAIN}"
-    [[ -n "${WORKQ_CUSTOM_DOMAIN_CERT_ARN:-}" ]] || err "WORKQ_CUSTOM_DOMAIN is set but WORKQ_CUSTOM_DOMAIN_CERT_ARN is not"
-    PARAM_OVERRIDES+=" CustomDomainCertArn=${WORKQ_CUSTOM_DOMAIN_CERT_ARN}"
+  if [[ -n "${REQUESTQUEUE_CUSTOM_DOMAIN:-}" ]]; then
+    PARAM_OVERRIDES+=" CustomDomain=${REQUESTQUEUE_CUSTOM_DOMAIN}"
+    [[ -n "${REQUESTQUEUE_CUSTOM_DOMAIN_CERT_ARN:-}" ]] || err "REQUESTQUEUE_CUSTOM_DOMAIN is set but REQUESTQUEUE_CUSTOM_DOMAIN_CERT_ARN is not"
+    PARAM_OVERRIDES+=" CustomDomainCertArn=${REQUESTQUEUE_CUSTOM_DOMAIN_CERT_ARN}"
   fi
-  if [[ -n "${WORKQ_COGNITO_DOMAIN_PREFIX:-}" ]]; then
-    PARAM_OVERRIDES+=" CognitoDomainPrefix=${WORKQ_COGNITO_DOMAIN_PREFIX}"
+  if [[ -n "${REQUESTQUEUE_COGNITO_DOMAIN_PREFIX:-}" ]]; then
+    PARAM_OVERRIDES+=" CognitoDomainPrefix=${REQUESTQUEUE_COGNITO_DOMAIN_PREFIX}"
   fi
 
   SAMCONFIG="${REPO_ROOT}/infra/samconfig.toml"
@@ -148,10 +148,10 @@ fi
 # ---------------------------------------------------------------------------
 # We only publish a derived app.json (display_timezone + prompt_areas).
 # The full prompt_parts.yaml stays local — used by local/build only.
-info "deriving app.json from config/prompt_parts.yaml + WORKQ_DISPLAY_TIMEZONE"
+info "deriving app.json from config/prompt_parts.yaml + REQUESTQUEUE_DISPLAY_TIMEZONE"
 TMP_APP_JSON="$(mktemp)"
 trap 'rm -f "${TMP_APP_JSON}"' EXIT
-WORKQ_DISPLAY_TIMEZONE="${WORKQ_DISPLAY_TIMEZONE:-UTC}" \
+REQUESTQUEUE_DISPLAY_TIMEZONE="${REQUESTQUEUE_DISPLAY_TIMEZONE:-UTC}" \
   "${PYBIN}" "${REPO_ROOT}/scripts/derive_app_config.py" \
   "${REPO_ROOT}/config/prompt_parts.yaml" > "${TMP_APP_JSON}"
 

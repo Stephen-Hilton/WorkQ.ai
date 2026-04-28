@@ -1,5 +1,5 @@
 # =============================================================================
-# WorkQ.ai — prompt_parts.yaml
+# RequestQueue.ai — prompt_parts.yaml
 # =============================================================================
 # This file is the source of truth for the per-project prompt customization.
 # It is committed in this repo, validated by `scripts/validate_prompt_parts.py`,
@@ -48,9 +48,9 @@ all:
     **Status signal (REQUIRED if non-default):**
     - If you have a critical question that must be answered before this can
       be considered complete, end your entire response with the exact line:
-      `<!-- workq:status=pending_review -->`
+      `<!-- requestqueue:status=pending_review -->`
     - If you tried but could not satisfy the request, end with:
-      `<!-- workq:status=failed -->`
+      `<!-- requestqueue:status=failed -->`
     - Otherwise, omit the fence and the system will mark the request complete.
 
 status:
@@ -60,7 +60,7 @@ status:
       tests, deploy to AWS using the credentials in the local config (if the
       change requires it), then test the deployed change.
 
-      Commit your changes on the current branch (a fresh `workq/<reqid>` branch
+      Commit your changes on the current branch (a fresh `requestqueue/<reqid>` branch
       has already been created). The system will push the branch and open a PR
       automatically after you exit.
 

@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # scripts/bootstrap_local.sh — one-time fetch of the Cognito service-user
-# password from Secrets Manager into ~/.config/workq/credentials.
+# password from Secrets Manager into ~/.config/requestqueue/credentials.
 #
 # Run this on the local server (or wherever local/monitor will run) ONCE,
 # using AWS credentials that can read the secret. After this, the local
 # server has zero AWS IAM credentials at runtime — only the Cognito password.
 #
 # Reads:
-#   .workq.outputs.json     (for ServiceUserSecretArn / ServiceUserEmail)
-#   .env                    (for WORKQ_AWS_REGION + AWS creds for the bootstrap)
+#   .requestqueue.outputs.json     (for ServiceUserSecretArn / ServiceUserEmail)
+#   .env                    (for REQUESTQUEUE_AWS_REGION + AWS creds for the bootstrap)
 #
 # Writes:
-#   ~/.config/workq/credentials   (mode 0600, JSON: {email, password})
+#   ~/.config/requestqueue/credentials   (mode 0600, JSON: {email, password})
 #
 # Usage:
 #   scripts/bootstrap_local.sh
@@ -19,9 +19,9 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OUTPUTS_FILE="${REPO_ROOT}/.workq.outputs.json"
+OUTPUTS_FILE="${REPO_ROOT}/.requestqueue.outputs.json"
 ENV_FILE="${REPO_ROOT}/.env"
-CRED_DIR="${WORKQ_CREDENTIALS_DIR:-${HOME}/.config/workq}"
+CRED_DIR="${REQUESTQUEUE_CREDENTIALS_DIR:-${HOME}/.config/requestqueue}"
 CRED_FILE="${CRED_DIR}/credentials"
 
 err() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -36,7 +36,7 @@ set -a; source "${ENV_FILE}"; set +a
 command -v aws >/dev/null || err "aws CLI not installed"
 command -v jq >/dev/null || err "jq not installed (brew install jq)"
 
-REGION="${WORKQ_AWS_REGION:-us-east-1}"
+REGION="${REQUESTQUEUE_AWS_REGION:-us-east-1}"
 SECRET_ARN="$(jq -r '.ServiceUserSecretArn // .service_user_secret_arn // empty' "${OUTPUTS_FILE}")"
 EMAIL="$(jq -r '.ServiceUserEmail // .service_user_email // empty' "${OUTPUTS_FILE}")"
 

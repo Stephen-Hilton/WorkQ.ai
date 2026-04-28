@@ -1,4 +1,4 @@
-# WorkQ.ai — convenience targets.
+# RequestQueue.ai — convenience targets.
 # All real work happens in scripts/. Targets here are thin wrappers.
 
 .PHONY: help install validate deploy publish publish-prompts dev sam-sync \
@@ -6,7 +6,7 @@
 
 # Default target prints help.
 help:
-	@echo "WorkQ.ai — make targets:"
+	@echo "RequestQueue.ai — make targets:"
 	@echo ""
 	@echo "  Setup:"
 	@echo "    install            uv sync (apis + local) and pnpm install (webapp)"
@@ -67,7 +67,7 @@ publish-prompts:
 	bash scripts/publish.sh --prompts-only
 
 sam-sync:
-	cd infra && sam sync --watch --stack-name $${WORKQ_STACK_NAME:-workq}
+	cd infra && sam sync --watch --stack-name $${REQUESTQUEUE_STACK_NAME:-requestqueue}
 
 dev:
 	cd ui/webapp && pnpm run dev

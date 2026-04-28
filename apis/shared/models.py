@@ -1,4 +1,4 @@
-"""Record schema and status enum for WorkQ work requests.
+"""Record schema and status enum for RequestQueue work requests.
 
 Authoritative schema. Any field-level change must be reflected in:
 - the SAM template (DDB attribute defs only matter for keys/GSI),

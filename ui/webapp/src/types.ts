@@ -56,13 +56,13 @@ export interface RuntimeConfig {
 declare global {
   // Vite-injected build-time constants. See vite.config.ts.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const __WORKQ_API_URL__: string;
+  const __REQUESTQUEUE_API_URL__: string;
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const __WORKQ_COGNITO_USER_POOL_ID__: string;
+  const __REQUESTQUEUE_COGNITO_USER_POOL_ID__: string;
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const __WORKQ_COGNITO_CLIENT_ID__: string;
+  const __REQUESTQUEUE_COGNITO_CLIENT_ID__: string;
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const __WORKQ_COGNITO_REGION__: string;
+  const __REQUESTQUEUE_COGNITO_REGION__: string;
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const __WORKQ_WEBAPP_URL__: string;
+  const __REQUESTQUEUE_WEBAPP_URL__: string;
 }

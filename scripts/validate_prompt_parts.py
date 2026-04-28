@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate `config/prompt_parts.yaml` against the WorkQ schema.
+"""Validate `config/prompt_parts.yaml` against the RequestQueue schema.
 
 Run as part of `scripts/publish.sh` and as a CI step on PRs that touch the file.
 

@@ -1,7 +1,7 @@
 [project]
-name = "workq-local"
+name = "requestqueue-local"
 version = "0.1.0"
-description = "WorkQ.ai — local monitor + build (polls API, runs claude code, opens PRs)"
+description = "RequestQueue.ai — local monitor + build (polls API, runs claude code, opens PRs)"
 requires-python = ">=3.12"
 dependencies = [
     "requests>=2.32.0",

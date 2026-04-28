@@ -2,8 +2,8 @@
 
 Reads, in order:
   1. `.env` at repo root (deploy inputs).
-  2. `.workq.outputs.json` at repo root (deploy outputs from `sam deploy`).
-  3. `~/.config/workq/credentials` (service-user password, written by
+  2. `.requestqueue.outputs.json` at repo root (deploy outputs from `sam deploy`).
+  3. `~/.config/requestqueue/credentials` (service-user password, written by
      `scripts/bootstrap_local.sh`).
 
 Provides typed accessors so the rest of the codebase doesn't sprinkle
@@ -33,10 +33,10 @@ def repo_root() -> Path:
 
 
 def credentials_path() -> Path:
-    custom = os.environ.get("WORKQ_CREDENTIALS_PATH")
+    custom = os.environ.get("REQUESTQUEUE_CREDENTIALS_PATH")
     if custom:
         return Path(custom).expanduser()
-    return Path.home() / ".config" / "workq" / "credentials"
+    return Path.home() / ".config" / "requestqueue" / "credentials"
 
 
 @dataclass(frozen=True)
@@ -59,7 +59,7 @@ class Config:
 
 
 def _load_outputs(root: Path) -> dict[str, str]:
-    p = root / ".workq.outputs.json"
+    p = root / ".requestqueue.outputs.json"
     if not p.exists():
         return {}
     try:
@@ -106,16 +106,16 @@ def load() -> Config:
     def env_or(key: str, fallback: str = "") -> str:
         return os.environ.get(key, fallback)
 
-    api_url = env_or("WORKQ_API_URL") or outputs.get("api_url", "")
-    pool_id = outputs.get("cognito_user_pool_id", "") or env_or("WORKQ_COGNITO_USER_POOL_ID")
-    client_id = outputs.get("cognito_client_id", "") or env_or("WORKQ_COGNITO_CLIENT_ID")
-    region = outputs.get("cognito_region", "") or env_or("WORKQ_AWS_REGION", "us-east-1")
+    api_url = env_or("REQUESTQUEUE_API_URL") or outputs.get("api_url", "")
+    pool_id = outputs.get("cognito_user_pool_id", "") or env_or("REQUESTQUEUE_COGNITO_USER_POOL_ID")
+    client_id = outputs.get("cognito_client_id", "") or env_or("REQUESTQUEUE_COGNITO_CLIENT_ID")
+    region = outputs.get("cognito_region", "") or env_or("REQUESTQUEUE_AWS_REGION", "us-east-1")
     service_email = (
         creds.get("email")
         or outputs.get("service_user_email", "")
-        or "service-local-monitor@workq.internal"
+        or "service-local-monitor@requestqueue.internal"
     )
-    service_password = creds.get("password") or env_or("WORKQ_SERVICE_USER_PASSWORD")
+    service_password = creds.get("password") or env_or("REQUESTQUEUE_SERVICE_USER_PASSWORD")
 
     return Config(
         api_url=api_url,
@@ -124,15 +124,15 @@ def load() -> Config:
         cognito_region=region,
         service_user_email=service_email,
         service_user_password=service_password,
-        polling_seconds=int(env_or("WORKQ_POLLING_SECONDS", "30")),
-        build_timeout_seconds=int(env_or("WORKQ_BUILD_TIMEOUT_SECONDS", "2700")),
+        polling_seconds=int(env_or("REQUESTQUEUE_POLLING_SECONDS", "30")),
+        build_timeout_seconds=int(env_or("REQUESTQUEUE_BUILD_TIMEOUT_SECONDS", "2700")),
         prompt_parts_path=Path(
-            env_or("WORKQ_PROMPT_PARTS_PATH", str(root / "config" / "prompt_parts.yaml"))
+            env_or("REQUESTQUEUE_PROMPT_PARTS_PATH", str(root / "config" / "prompt_parts.yaml"))
         ).expanduser(),
-        github_repo_url=env_or("WORKQ_GITHUB_REPO_URL"),
-        github_branch=env_or("WORKQ_GITHUB_BRANCH", "main"),
-        github_token=env_or("WORKQ_GITHUB_TOKEN"),
-        github_auto_merge=env_or("WORKQ_GITHUB_AUTO_MERGE", "false").lower() == "true",
-        github_auto_merge_method=env_or("WORKQ_GITHUB_AUTO_MERGE_METHOD", "squash"),
+        github_repo_url=env_or("REQUESTQUEUE_GITHUB_REPO_URL"),
+        github_branch=env_or("REQUESTQUEUE_GITHUB_BRANCH", "main"),
+        github_token=env_or("REQUESTQUEUE_GITHUB_TOKEN"),
+        github_auto_merge=env_or("REQUESTQUEUE_GITHUB_AUTO_MERGE", "false").lower() == "true",
+        github_auto_merge_method=env_or("REQUESTQUEUE_GITHUB_AUTO_MERGE_METHOD", "squash"),
         repo_root=root,
     )

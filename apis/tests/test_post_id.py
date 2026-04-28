@@ -72,4 +72,4 @@ def test_post_falls_back_to_service_user_when_no_jwt() -> None:
     with patch("handlers.post_id.ddb.put_item", side_effect=fake_put_item):
         post_id.handler(event, None)
 
-    assert captured["item"]["reqcreator"].endswith("@workq.internal")
+    assert captured["item"]["reqcreator"].endswith("@requestqueue.internal")

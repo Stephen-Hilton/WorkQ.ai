@@ -11,8 +11,8 @@ import {
 } from "amazon-cognito-identity-js";
 
 const POOL = new CognitoUserPool({
-  UserPoolId: __WORKQ_COGNITO_USER_POOL_ID__,
-  ClientId: __WORKQ_COGNITO_CLIENT_ID__,
+  UserPoolId: __REQUESTQUEUE_COGNITO_USER_POOL_ID__,
+  ClientId: __REQUESTQUEUE_COGNITO_CLIENT_ID__,
 });
 
 export class CognitoAuth {

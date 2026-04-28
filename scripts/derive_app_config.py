@@ -2,7 +2,7 @@
 """Build the webapp's runtime `app.json` from `config/prompt_parts.yaml` + env.
 
 The webapp consumes a tiny payload at runtime:
-  - display_timezone: from $WORKQ_DISPLAY_TIMEZONE (default UTC)
+  - display_timezone: from $REQUESTQUEUE_DISPLAY_TIMEZONE (default UTC)
   - prompt_areas:    derived from prompt_parts.yaml `areas:` keys
                      (always includes "General")
 
@@ -44,7 +44,7 @@ def derive(path: Path, timezone: str) -> dict:
 
 def main() -> int:
     path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("config/prompt_parts.yaml")
-    tz = os.environ.get("WORKQ_DISPLAY_TIMEZONE", "UTC")
+    tz = os.environ.get("REQUESTQUEUE_DISPLAY_TIMEZONE", "UTC")
     payload = derive(path, tz)
     json.dump(payload, sys.stdout, indent=2)
     sys.stdout.write("\n")

@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: WorkQ.ai — serverless work-queue with Cognito-gated webapp and local builder
+Description: RequestQueue.ai — serverless work-queue with Cognito-gated webapp and local builder
 
 # ---------------------------------------------------------------------------
 # Parameters (mostly sourced from .env via samconfig.toml or --parameter-overrides)
@@ -8,13 +8,13 @@ Description: WorkQ.ai — serverless work-queue with Cognito-gated webapp and lo
 Parameters:
   StackName:
     Type: String
-    Default: workq
+    Default: requestqueue
     Description: Logical stack name (used in resource names).
 
   EmailWhitelistSeed:
     Type: String
     Default: ""
-    Description: Initial value for /workq/email_whitelist (comma-separated emails / @domains). Manage via scripts/whitelist_user.sh after first deploy.
+    Description: Initial value for /requestqueue/email_whitelist (comma-separated emails / @domains). Manage via scripts/whitelist_user.sh after first deploy.
 
   CustomDomain:
     Type: String
@@ -29,7 +29,7 @@ Parameters:
   CognitoDomainPrefix:
     Type: String
     Default: ""
-    Description: Globally-unique prefix for the Cognito hosted UI (e.g. workq-yourorg). Default = "<StackName>-<AccountId>".
+    Description: Globally-unique prefix for the Cognito hosted UI (e.g. requestqueue-yourorg). Default = "<StackName>-<AccountId>".
 
 # ---------------------------------------------------------------------------
 # Conditions
@@ -53,7 +53,7 @@ Globals:
       Variables:
         DDB_TABLE: !Ref RequestsTable
         WHITELIST_PARAM_NAME: !Sub "/${StackName}/email_whitelist"
-        SERVICE_USER_EMAIL: "service-local-monitor@workq.internal"
+        SERVICE_USER_EMAIL: "service-local-monitor@requestqueue.internal"
 
   Api:
     OpenApiVersion: 3.0.1
@@ -97,7 +97,7 @@ Resources:
       Name: !Sub "/${StackName}/email_whitelist"
       Type: String
       Value: !Ref EmailWhitelistSeed
-      Description: WorkQ.ai email whitelist for Cognito sign-up. Manage via scripts/whitelist_user.sh.
+      Description: RequestQueue.ai email whitelist for Cognito sign-up. Manage via scripts/whitelist_user.sh.
 
   # -------------------------------------------------------------------------
   # Secrets Manager — service-user password
@@ -211,7 +211,7 @@ Resources:
       Environment:
         Variables:
           USER_POOL_ID: !Ref UserPool
-          SERVICE_USER_EMAIL: "service-local-monitor@workq.internal"
+          SERVICE_USER_EMAIL: "service-local-monitor@requestqueue.internal"
           SECRET_ARN: !Ref ServiceUserSecret
       Policies:
         - Statement:
@@ -234,7 +234,7 @@ Resources:
       ServiceToken: !GetAtt ServiceUserBootstrapFunction.Arn
       UserPoolId: !Ref UserPool
       SecretArn: !Ref ServiceUserSecret
-      Email: "service-local-monitor@workq.internal"
+      Email: "service-local-monitor@requestqueue.internal"
 
   # -------------------------------------------------------------------------
   # API Gateway (Cognito authorizer; webapp + local both use it)
@@ -459,7 +459,7 @@ Resources:
 
 # ---------------------------------------------------------------------------
 # Outputs (consumed by webapp build + scripts/publish.sh; written to
-# .workq.outputs.json)
+# .requestqueue.outputs.json)
 # ---------------------------------------------------------------------------
 Outputs:
   WebappUrl:
@@ -506,7 +506,7 @@ Outputs:
 
   ServiceUserEmail:
     Description: Cognito username for the local-server service user
-    Value: "service-local-monitor@workq.internal"
+    Value: "service-local-monitor@requestqueue.internal"
 
   ApiCustomDomainTarget:
     Condition: HasCustomDomain

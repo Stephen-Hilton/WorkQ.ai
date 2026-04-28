@@ -73,7 +73,7 @@ export function MainScreen() {
     <div className="container mx-auto max-w-6xl px-4 py-6">
       <header className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">WorkQ.ai</h1>
+          <h1 className="text-2xl font-semibold">RequestQueue.ai</h1>
           <p className="text-xs text-muted-foreground">{email}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

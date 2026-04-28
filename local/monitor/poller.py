@@ -5,7 +5,7 @@ Responsibilities:
      (uuid v7 = create-order), spawn `python -m build <reqid>` as a child
      subprocess and wait for it to exit. Strict serial.
   2. Detect stuck builds (records in `building`/`planning` whose latest
-     `timelog.ts` is older than `WORKQ_BUILD_TIMEOUT_SECONDS + 60s`) and
+     `timelog.ts` is older than `REQUESTQUEUE_BUILD_TIMEOUT_SECONDS + 60s`) and
      force-mark them `failed`.
   3. Sleep `polling_seconds` between cycles.
 """
@@ -81,7 +81,7 @@ def _run_build(reqid: str, config: Config) -> None:
     cmd = [sys.executable, "-m", "build", reqid]
     try:
         # Wait for completion. Subprocess timeout is its problem (build enforces
-        # WORKQ_BUILD_TIMEOUT_SECONDS internally on the claude run); we add a
+        # REQUESTQUEUE_BUILD_TIMEOUT_SECONDS internally on the claude run); we add a
         # generous outer cap here just in case.
         outer_cap = config.build_timeout_seconds + 120
         result = subprocess.run(

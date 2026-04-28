@@ -8,7 +8,7 @@
 #   whitelist_user.sh -l                     # list
 #   whitelist_user.sh -h | --help | ?        # help
 #
-# Reads .env for WORKQ_AWS_REGION + WORKQ_STACK_NAME.
+# Reads .env for REQUESTQUEUE_AWS_REGION + REQUESTQUEUE_STACK_NAME.
 # Requires: aws CLI, jq.
 
 set -euo pipefail
@@ -64,8 +64,8 @@ fi
 # shellcheck source=/dev/null
 set -a; source "${ENV_FILE}"; set +a
 
-REGION="${WORKQ_AWS_REGION:-us-east-1}"
-STACK="${WORKQ_STACK_NAME:-workq}"
+REGION="${REQUESTQUEUE_AWS_REGION:-us-east-1}"
+STACK="${REQUESTQUEUE_STACK_NAME:-requestqueue}"
 PARAM="/${STACK}/email_whitelist"
 
 command -v aws >/dev/null || err "aws CLI not installed"

@@ -2,7 +2,7 @@
 // Build-time constants are baked in via vite.config.ts; runtime config is
 // the editable bits — display timezone and the list of `reqarea` names that
 // the user can pick from. Both are derived from config/prompt_parts.yaml +
-// WORKQ_DISPLAY_TIMEZONE by scripts/derive_app_config.py at deploy time.
+// REQUESTQUEUE_DISPLAY_TIMEZONE by scripts/derive_app_config.py at deploy time.
 //
 // The full prompt_parts.yaml is NEVER published — pre/post text stays
 // server-side. See config/README.md.
@@ -13,7 +13,7 @@ const WEBAPP_BASE = (() => {
   if (typeof window !== "undefined") {
     return `${window.location.origin}`;
   }
-  return __WORKQ_WEBAPP_URL__;
+  return __REQUESTQUEUE_WEBAPP_URL__;
 })();
 
 interface AppJson {
@@ -41,11 +41,11 @@ export async function loadRuntimeConfig(): Promise<RuntimeConfig> {
     : ["General"];
   if (!areas.includes("General")) areas.unshift("General");
   cached = {
-    api_url: __WORKQ_API_URL__,
-    cognito_user_pool_id: __WORKQ_COGNITO_USER_POOL_ID__,
-    cognito_client_id: __WORKQ_COGNITO_CLIENT_ID__,
-    cognito_region: __WORKQ_COGNITO_REGION__,
-    webapp_url: __WORKQ_WEBAPP_URL__,
+    api_url: __REQUESTQUEUE_API_URL__,
+    cognito_user_pool_id: __REQUESTQUEUE_COGNITO_USER_POOL_ID__,
+    cognito_client_id: __REQUESTQUEUE_COGNITO_CLIENT_ID__,
+    cognito_region: __REQUESTQUEUE_COGNITO_REGION__,
+    webapp_url: __REQUESTQUEUE_WEBAPP_URL__,
     display_timezone: app.display_timezone || "UTC",
     prompt_areas: areas,
   };

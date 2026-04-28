@@ -221,9 +221,9 @@ __marimo__/
 .streamlit/secrets.toml
 
 # -----------------------------------------------------------------------------
-# WorkQ.ai
+# RequestQueue.ai
 # -----------------------------------------------------------------------------
-.workq.outputs.json
+.requestqueue.outputs.json
 local/logs/
 local/workspace/
 local/.env.local

@@ -88,7 +88,7 @@ def handler(event: dict[str, Any], _context: Any) -> None:
     request_type = event["RequestType"]
     props = event.get("ResourceProperties") or {}
     user_pool_id = props.get("UserPoolId") or os.environ["USER_POOL_ID"]
-    email = props.get("Email") or os.environ.get("SERVICE_USER_EMAIL", "service-local-monitor@workq.internal")
+    email = props.get("Email") or os.environ.get("SERVICE_USER_EMAIL", "service-local-monitor@requestqueue.internal")
     secret_arn = props.get("SecretArn") or os.environ["SECRET_ARN"]
 
     try:

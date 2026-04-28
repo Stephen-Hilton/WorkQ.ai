@@ -1,4 +1,4 @@
-"""Thin REST client for the WorkQ API, using a Cognito JWT.
+"""Thin REST client for the RequestQueue API, using a Cognito JWT.
 
 Wraps `requests` with automatic token refresh via AuthenticatedSession.
 """

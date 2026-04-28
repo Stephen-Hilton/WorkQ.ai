@@ -1,12 +1,14 @@
-# WorkQ.ai
+# Web AI Build - RequestQueue Framework
 
-A nearly-free, AWS-serverless, secure web queue for AI work requests. Submit and monitor on the go; a local server hands queued requests to headless `claude code`, opens a PR, and writes the result back.
+An AWS-serverless (nearly free) secure web queue for AI work requests that run on a secondary server (on AWS, locally, GCP, Azure, wherever). Submit and monitor on the go; the "local" server hands queued requests to headless `claude code`, opens a PR, and writes the result back.
 
 - **Webapp** (S3 + CloudFront, Cognito auth): create/edit/clone/delete requests; live status; mobile-friendly.
 - **API** (API Gateway + Lambda + DynamoDB): tiny REST CRUD, optimistic concurrency.
 - **Local server** (Python): polls the API, runs `claude code` in a per-request `git worktree`, opens a PR, posts the result.
 
 See [`prompts/reqv1.md`](prompts/reqv1.md) for the full spec.
+
+I use this for all of my AI projects, usually by merging it into my apps' admin control center, as it allows me to queue up runtime errors for review and/or auto-fix. I also allows me to submit work to the AI coding agent via my mobile device from the beach.  Sand helps me code. 
 
 ---
 
@@ -34,8 +36,8 @@ On your **local server** (laptop or otherwise):
 ### One-time setup
 
 ```bash
-git clone https://github.com/<you>/WorkQ.ai.git
-cd WorkQ.ai
+git clone https://github.com/<you>/RequestQueue.ai.git
+cd RequestQueue.ai
 cp .env.example .env          # then edit .env (see env-var reference below)
 make install                  # uv sync + pnpm install
 make publish                  # sam deploy --guided + pnpm build + s3 sync + cloudfront invalidate
@@ -44,19 +46,19 @@ scripts/whitelist_user.sh -a yourname@yourdomain.com    # or -a @yourdomain.com
 
 The first `make publish` runs `sam deploy --guided` which will prompt for stack name, region, and a few confirmations, then writes `samconfig.toml` so future `sam deploy` is non-interactive.
 
-After publish, the deploy outputs (`webapp_url`, `api_url`, etc.) are written to `.workq.outputs.json`. Open `webapp_url` in a browser, sign up with the whitelisted email, log in.
+After publish, the deploy outputs (`webapp_url`, `api_url`, etc.) are written to `.requestqueue.outputs.json`. Open `webapp_url` in a browser, sign up with the whitelisted email, log in.
 
 ### Set up the local server
 
 On the box that will actually run `claude code`:
 
 ```bash
-git clone https://github.com/<you>/WorkQ.ai.git
-cd WorkQ.ai
-cp .env.example .env          # set WORKQ_AWS_REGION + WORKQ_AWS_PROFILE temporarily for bootstrap
+git clone https://github.com/<you>/RequestQueue.ai.git
+cd RequestQueue.ai
+cp .env.example .env          # set REQUESTQUEUE_AWS_REGION + REQUESTQUEUE_AWS_PROFILE temporarily for bootstrap
 make install
 scripts/bootstrap_local.sh    # one-time fetch of service-user password from Secrets Manager
-                              # writes to ~/.config/workq/credentials
+                              # writes to ~/.config/requestqueue/credentials
 # AWS keys are no longer needed at runtime — you may remove them from .env now
 make monitor                  # starts python -m local.monitor (long-running)
 ```
@@ -67,24 +69,24 @@ Use `make monitor-bg` to run it in the background and tail the log. Use a `syste
 
 ## Env-var reference
 
-All env vars are prefixed `WORKQ_`. See `.env.example` for the canonical list with comments. Highlights:
+All env vars are prefixed `REQUESTQUEUE_`. See `.env.example` for the canonical list with comments. Highlights:
 
 | Var | Used by | Notes |
 |---|---|---|
-| `WORKQ_AWS_REGION` | deploy | Must be `us-east-1` if you use a custom domain. |
-| `WORKQ_AWS_PROFILE` | deploy / bootstrap | Optional — alternative to `AWS_ACCESS_KEY_ID`. Standard AWS credential chain applies. |
-| `WORKQ_CUSTOM_DOMAIN` | deploy (optional) | E.g., `example.com`. If set, webapp = `https://work.<domain>`, API = `https://api.<domain>`. |
-| `WORKQ_CUSTOM_DOMAIN_CERT_ARN` | deploy (required if custom domain) | ACM cert in `us-east-1` covering both subdomains. |
-| `WORKQ_EMAIL_WHITELIST` | deploy (seed) | Comma-separated emails or `@domain` wildcards. Seeds SSM on first deploy. |
-| `WORKQ_GITHUB_REPO_URL` | local | Repo claude will operate on. |
-| `WORKQ_GITHUB_BRANCH` | local | Default base branch. Default `main`. |
-| `WORKQ_GITHUB_TOKEN` | local | Fine-grained PAT — see scopes below. |
-| `WORKQ_GITHUB_AUTO_MERGE` | local | `false` (default) or `true`. Auto-merges every PR. |
-| `WORKQ_GITHUB_AUTO_MERGE_METHOD` | local | `squash` (default) / `merge` / `rebase`. |
-| `WORKQ_POLLING_SECONDS` | local | Monitor poll interval. Default `30`. |
-| `WORKQ_BUILD_TIMEOUT_SECONDS` | local | Max claude wall-clock. Default `2700` (45 min). |
-| `WORKQ_DISPLAY_TIMEZONE` | webapp | Display-only TZ. Storage is always UTC. Default `UTC`. |
-| `WORKQ_PROMPT_PARTS_PATH` | local | Default `./config/prompt_parts.yaml`. |
+| `REQUESTQUEUE_AWS_REGION` | deploy | Must be `us-east-1` if you use a custom domain. |
+| `REQUESTQUEUE_AWS_PROFILE` | deploy / bootstrap | Optional — alternative to `AWS_ACCESS_KEY_ID`. Standard AWS credential chain applies. |
+| `REQUESTQUEUE_CUSTOM_DOMAIN` | deploy (optional) | E.g., `example.com`. If set, webapp = `https://work.<domain>`, API = `https://api.<domain>`. |
+| `REQUESTQUEUE_CUSTOM_DOMAIN_CERT_ARN` | deploy (required if custom domain) | ACM cert in `us-east-1` covering both subdomains. |
+| `REQUESTQUEUE_EMAIL_WHITELIST` | deploy (seed) | Comma-separated emails or `@domain` wildcards. Seeds SSM on first deploy. |
+| `REQUESTQUEUE_GITHUB_REPO_URL` | local | Repo claude will operate on. |
+| `REQUESTQUEUE_GITHUB_BRANCH` | local | Default base branch. Default `main`. |
+| `REQUESTQUEUE_GITHUB_TOKEN` | local | Fine-grained PAT — see scopes below. |
+| `REQUESTQUEUE_GITHUB_AUTO_MERGE` | local | `false` (default) or `true`. Auto-merges every PR. |
+| `REQUESTQUEUE_GITHUB_AUTO_MERGE_METHOD` | local | `squash` (default) / `merge` / `rebase`. |
+| `REQUESTQUEUE_POLLING_SECONDS` | local | Monitor poll interval. Default `30`. |
+| `REQUESTQUEUE_BUILD_TIMEOUT_SECONDS` | local | Max claude wall-clock. Default `2700` (45 min). |
+| `REQUESTQUEUE_DISPLAY_TIMEZONE` | webapp | Display-only TZ. Storage is always UTC. Default `UTC`. |
+| `REQUESTQUEUE_PROMPT_PARTS_PATH` | local | Default `./config/prompt_parts.yaml`. |
 
 ### GitHub PAT scopes
 
@@ -93,7 +95,7 @@ Minimum:
 - `contents:write` (push branches)
 - `pull_requests:write` (create PRs)
 
-If `WORKQ_GITHUB_AUTO_MERGE=true`, you also need admin rights on the repo (the token must be allowed to use `gh pr merge --admin`, which bypasses branch protection).
+If `REQUESTQUEUE_GITHUB_AUTO_MERGE=true`, you also need admin rights on the repo (the token must be allowed to use `gh pr merge --admin`, which bypasses branch protection).
 
 ---
 
@@ -124,17 +126,17 @@ If `WORKQ_GITHUB_AUTO_MERGE=true`, you also need admin rights on the repo (the t
                    │ DynamoDB         │                                   ▼
                    │  PK = reqid v7   │                            ┌──────────────┐
                    │  no SK, no GSI   │                            │ GitHub repo  │
-                   └──────────────────┘                            │  workq/<id>  │
+                   └──────────────────┘                            │  requestqueue/<id>  │
                                                                    │  branches+PRs│
                   ┌────────────────────┐                           └──────────────┘
                   │ Cognito User Pool  │
                   │  human users +     │◀── pre-signup Lambda ── SSM whitelist
                   │  service-local-mon │
                   └────────────────────┘
-                  ┌────────────────────┐    ┌──────────────────┐
+                  ┌────────────────────┐    ┌───────────────────┐
                   │ S3 (private/OAC)   │◀── │ CloudFront        │
                   │  /static (bundle)  │    │  HTTPS, edge cache│
-                  │  /config/*.yaml    │    └──────────────────┘
+                  │  /config/*.yaml    │    └───────────────────┘
                   └────────────────────┘
 ```
 
@@ -154,7 +156,7 @@ scripts/whitelist_user.sh -l
 scripts/whitelist_user.sh -h
 ```
 
-Edits `/workq/email_whitelist` in SSM Parameter Store. Takes effect immediately (no redeploy).
+Edits `/requestqueue/email_whitelist` in SSM Parameter Store. Takes effect immediately (no redeploy).
 
 ### Update `config/prompt_parts.yaml`
 
@@ -205,7 +207,7 @@ The system is designed to never leave a request silently stuck.
 | `claude code` exited non-zero | Status `failed`, `response` has full output + exit code + recommended next step. |
 | Claude succeeded but `git push` / `gh pr create` failed | Status `pending review`, `response` has the work product + manual recovery commands. |
 | Auto-merge requested but `gh pr merge --admin` failed | Status `pending review`, `reqpr` set to PR URL, response notes the failure. |
-| `local/build` crashed entirely (segfault, kernel OOM, server reboot) | After `WORKQ_BUILD_TIMEOUT_SECONDS + 60s`, monitor's stuck-build detector force-sets the record to `failed` with a "build appears to have died" response. |
+| `local/build` crashed entirely (segfault, kernel OOM, server reboot) | After `REQUESTQUEUE_BUILD_TIMEOUT_SECONDS + 60s`, monitor's stuck-build detector force-sets the record to `failed` with a "build appears to have died" response. |
 | Two users save the same record concurrently | Second save returns 409; webapp shows a diff dialog. |
 
 Every `failed`/`pending review` response includes a copy-pasteable `# Recommended Next Step` section. Read it, fix it, then either re-queue the request or `Save and Complete`.

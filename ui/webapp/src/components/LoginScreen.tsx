@@ -37,7 +37,7 @@ export function LoginScreen() {
     <div className="flex min-h-screen items-center justify-center px-4">
       <div className="w-full max-w-sm space-y-6">
         <div className="text-center">
-          <h1 className="text-2xl font-semibold">WorkQ.ai</h1>
+          <h1 className="text-2xl font-semibold">RequestQueue.ai</h1>
           <p className="text-sm text-muted-foreground">
             {mode === "signin" ? "Sign in to continue" : "Create an account"}
           </p>

@@ -2,7 +2,7 @@
 
 Per-build flow:
   1. Ensure a bare clone exists at `local/workspace/.git-bare/` (clone-once).
-  2. `git worktree add local/workspace/<reqid> -b workq/<reqid> <base-branch>`
+  2. `git worktree add local/workspace/<reqid> -b requestqueue/<reqid> <base-branch>`
      to get an isolated working tree on a fresh branch.
   3. Claude operates inside that directory.
   4. After claude exits:
@@ -10,7 +10,7 @@ Per-build flow:
      - If no commits: just clean up the worktree.
   5. `git worktree remove --force` regardless.
 
-Uses `gh` for PR creation (auth via `WORKQ_GITHUB_TOKEN` env var).
+Uses `gh` for PR creation (auth via `REQUESTQUEUE_GITHUB_TOKEN` env var).
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""DynamoDB client + helpers for the WorkQ requests table."""
+"""DynamoDB client + helpers for the RequestQueue requests table."""
 
 from __future__ import annotations
 

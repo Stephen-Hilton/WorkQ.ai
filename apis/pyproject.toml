@@ -1,7 +1,7 @@
 [project]
-name = "workq-apis"
+name = "requestqueue-apis"
 version = "0.1.0"
-description = "WorkQ.ai — API Gateway Lambda handlers (DDB CRUD + Cognito pre-signup)"
+description = "RequestQueue.ai — API Gateway Lambda handlers (DDB CRUD + Cognito pre-signup)"
 requires-python = ">=3.12"
 dependencies = [
     "boto3>=1.34.0",

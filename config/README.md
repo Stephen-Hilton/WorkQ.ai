@@ -1,6 +1,6 @@
-# WorkQ — runtime configuration
+# RequestQueue — runtime configuration
 
-This directory holds files you edit at runtime to configure your WorkQ deployment. They are **not** source code, **not** version artifacts, and **not** auto-generated. They live in version control so changes go through PR review like any other code change.
+This directory holds files you edit at runtime to configure your RequestQueue deployment. They are **not** source code, **not** version artifacts, and **not** auto-generated. They live in version control so changes go through PR review like any other code change.
 
 ## Files
 
@@ -14,7 +14,7 @@ Per-project prompt customization for the headless `claude code` invocation. Defi
 
 ### Who reads this file
 
-- **`local/build/`** reads it from disk (path: `WORKQ_PROMPT_PARTS_PATH`, default `./config/prompt_parts.yaml`) to assemble the prompt for each build.
+- **`local/build/`** reads it from disk (path: `REQUESTQUEUE_PROMPT_PARTS_PATH`, default `./config/prompt_parts.yaml`) to assemble the prompt for each build.
 - **The webapp** does **not** read this file directly. At deploy time, `scripts/publish.sh` extracts the list of area keys and bakes them into `app.json` (uploaded to S3). The webapp fetches `app.json` to populate the `reqarea` dropdown.
 
 This split keeps the prompt content (which may contain sensitive build instructions, internal file paths, etc.) entirely server-side. The webapp never sees the `pre`/`post` text — only the area names users can pick from.

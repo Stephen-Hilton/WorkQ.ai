@@ -1,7 +1,7 @@
 import { CognitoAuth } from "../auth/cognito";
 import type { Record } from "../types";
 
-const BASE = __WORKQ_API_URL__.replace(/\/+$/, "");
+const BASE = __REQUESTQUEUE_API_URL__.replace(/\/+$/, "");
 
 export class ApiError extends Error {
   status: number;
