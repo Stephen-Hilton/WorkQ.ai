@@ -1,0 +1,37 @@
+[project]
+name = "workq-local"
+version = "0.1.0"
+description = "WorkQ.ai — local monitor + build (polls API, runs claude code, opens PRs)"
+requires-python = ">=3.12"
+dependencies = [
+    "requests>=2.32.0",
+    "pyyaml>=6.0.0",
+    "boto3>=1.34.0",
+    "python-dotenv>=1.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.5.0",
+    "mypy>=1.10.0",
+    "types-requests>=2.32.0",
+    "types-pyyaml>=6.0.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "N", "W"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
