@@ -30,7 +30,12 @@ The canonical README is at `README.md`; this wizard is its executable form. When
 
 6. **Don't skip the "Report an issue" option to save tokens.** It is the entire point of this wizard's first run — discovering install bugs.
 
-7. **Interactive commands cannot be run from this side.** Claude Code's `Bash` tool does not connect user stdin to spawned processes, and the user-typed `! <cmd>` prefix has the same limitation — both will hit `EOF when reading a line` (or block forever) on any command that reads from a TTY. This includes `aws configure`, `aws configure sso`, `gh auth login`, `sam deploy --guided`, and any other command that prompts the user mid-run. **Always instruct the user to open a separate terminal window** (Terminal.app, iTerm, the IDE's integrated terminal, a tmux pane, etc.), `cd` into the repo, and run the interactive command there. Then `AskUserQuestion` to wait for them to confirm completion, and verify state from this side with a non-interactive read-only command (`aws sts get-caller-identity`, `gh auth status`, etc.). Never instruct the user to use `! aws configure` — it does not work.
+7. **Interactive commands cannot be run from this side.** Claude Code's `Bash` tool does not connect user stdin to spawned processes, and the user-typed `! <cmd>` prefix has the same limitation — both will hit `EOF when reading a line` (or block forever) on any command that reads from a TTY. This includes `aws configure`, `aws configure sso`, `gh auth login`, `sam deploy --guided`, and any other command that prompts the user mid-run. Never instruct the user to use `! aws configure` — it does not work.
+
+   **Two ways around this — pick the lighter one first:**
+
+   - **(a) Helper script that resolves secrets locally.** Write a script that takes the secret from a *local source* the user already has — a downloaded credentials CSV, the system clipboard via `$(pbpaste)` / `$(wl-paste)` / `$(xclip)`, or a file the user prepared. Shell expansion happens *inside the `!` subprocess after Claude has captured the bash-input as literal text*, so the secret value never appears in the transcript. The script must use commands that don't echo the secret (e.g. `aws configure set` is silent; raw `cat $secret_file` would leak). Output should be limited to non-secret verification (`aws sts get-caller-identity` JSON is fine — account/ARN are not secrets). See `scripts/aws_setup_config.sh` for the canonical pattern (CSV mode + clipboard mode + format validation). This is the **preferred** path because it runs inline in the wizard with no context-switching.
+   - **(b) Separate terminal as last resort.** If no script-driven path is feasible (e.g. the upstream CLI's only auth flow is browser-redirect-and-paste-back-into-stdin), instruct the user to open a separate terminal window, `cd` into the repo, run the interactive command there, then return and confirm via `AskUserQuestion`. Verify state from this side with a non-interactive read-only command (`aws sts get-caller-identity`, `gh auth status`, etc.).
 
 ## STANDARD ASKUSERQUESTION PATTERN
 
@@ -141,29 +146,41 @@ Walk the user through the README "AWS Account / One-Time Setup" steps:
    - Click "Create user", name it `requestqueue-deploy`.
    - Skip console access (programmatic only).
    - Permissions: "Attach policies directly" → `AdministratorAccess`. (For locked-down accounts, point to README's scoped-down policy table.)
-   - After creation, go to Security credentials → Create access key → "CLI" use case.
-   - Save the Access Key ID + Secret Access Key.
-   - `AskUserQuestion`: "Done? Have you saved the access keys?" → "Yes, ready", "Not yet — give me a minute", "Report an issue".
+   - After creation, go to **Security credentials → Create access key → "Command Line Interface (CLI)"** use case.
+   - On the success page, **click "Download .csv file"** — this saves both the Access Key ID and Secret to `~/Downloads/AccessKey-AKIA<id>.csv`. This is the cleanest path for the next step. (If they dismiss this prompt, they can still continue via the clipboard fallback below.)
+   - `AskUserQuestion`: "Did you download the .csv file?" Options: "Yes, downloaded the CSV", "No — I have the keys but not the CSV (use clipboard mode)", "Not yet — give me a minute", "Report an issue".
 
-3. **`aws configure` is interactive — it cannot be run from this side** (see CRITICAL RULES item 7; the `!` bash-prefix in Claude Code also hits EOF on stdin). Instruct the user:
+3. Configure the AWS CLI profile using `scripts/aws_setup_config.sh`. **Keys never pass through Claude** — the script reads them from a CSV file or the system clipboard locally, calls `aws configure set` (which doesn't echo values), and prints only the non-secret `aws sts get-caller-identity` JSON to confirm.
 
-   > Open a separate terminal window, `cd` into this repo, and run:
+   **Mode A — CSV (recommended, single command):**
+
+   If the user has the downloaded CSV:
+
+   > Run (replace the path with where you saved the CSV):
    > ```
-   > aws configure --profile <chosen profile name>
+   > ! ./scripts/aws_setup_config.sh --csv ~/Downloads/AccessKey-<id>.csv requestqueue us-east-1
    > ```
-   > It will prompt for four values:
-   > - **AWS Access Key ID** — paste the `AKIA…` value from the IAM access key page
-   > - **AWS Secret Access Key** — paste the secret (hidden as you type)
-   > - **Default region name** — `us-east-1` (or whatever matches `REQUESTQUEUE_AWS_REGION`)
-   > - **Default output format** — `json`
-   >
-   > When done, return here and confirm.
 
-   Then `AskUserQuestion`: "Done — configured the profile in another terminal?" Options: "Yes, configured", "I can't open another terminal — show me the manual file-write fallback", "Report an issue".
+   On success the script prints `aws sts get-caller-identity` JSON (account ID + ARN) and a "✓ Profile … is configured" line. After verifying, suggest the user `rm` the CSV (the script's last line shows the exact command).
 
-   On "Yes": verify with `aws sts get-caller-identity --profile <name>` and proceed.
+   **Mode B — Clipboard (fallback, two commands):**
 
-   On "manual fallback": ask the user to paste the Access Key ID and Secret Access Key via two separate `AskUserQuestion` calls (warn them up front: secrets pasted into AskUserQuestion will appear in the conversation transcript). Then write `~/.aws/credentials` and `~/.aws/config` directly using a strip-then-append idempotent merge — never overwrite the whole file, since the user may have other profiles. Set region from `REQUESTQUEUE_AWS_REGION` and output to `json`. Verify with `aws sts get-caller-identity --profile <name>`.
+   If they don't have the CSV (e.g. dismissed the download prompt):
+
+   > Copy the **Access Key ID** to your clipboard, then run:
+   > ```
+   > ! ./scripts/aws_setup_config.sh --clip-id requestqueue
+   > ```
+   > Then copy the **Secret Access Key** to your clipboard, then run:
+   > ```
+   > ! ./scripts/aws_setup_config.sh --clip-secret requestqueue us-east-1
+   > ```
+
+   Shell expansion of `pbpaste` / `wl-paste` / `xclip` happens *inside* the script after Claude has already captured the bash-input as literal `--clip-id` / `--clip-secret` args, so the secret value never appears in the conversation. The script validates format (Access Key ID must be `[A-Z0-9]{16,128}`; Secret must be ≥20 chars) before calling `aws configure set`.
+
+   `AskUserQuestion` after either mode: "Did the script print '✓ Profile … is configured and authenticates successfully'?" Options: "Yes, configured", "Failed — let's debug", "I want to try the other mode (CSV ↔ clipboard)", "Report an issue".
+
+   **Last-resort fallback (separate terminal):** if both modes fail (clipboard tool missing on Linux, CSV parsing error, etc.), instruct the user to open a separate terminal and run `aws configure --profile requestqueue` interactively. Verify back here with `aws sts get-caller-identity --profile requestqueue`.
 
 4. Write/update `REQUESTQUEUE_AWS_PROFILE` and `REQUESTQUEUE_AWS_REGION` in `.env` (use the same .env-merge pattern that `refresh_creds.sh` uses — strip-then-append, never overwrite the whole file).
 

@@ -235,3 +235,8 @@ node_modules/
 .DS_Store
 samconfig.toml.bak
 .aws-sam/
+# AWS-downloaded access-key CSVs (e.g. requestqueue-deploy_accessKeys.csv,
+# AccessKey-AKIA...csv) — must never be committed.
+*accessKey*.csv
+*AccessKey*.csv
+*credentials*.csv
