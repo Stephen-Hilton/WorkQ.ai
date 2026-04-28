@@ -15,6 +15,10 @@ I use this for all of my AI projects, usually by merging it into my apps' admin 
 
 # Quick start
 
+> **Recommended path: `/requestqueue_install` in Claude Code.** This repo ships with an interactive install wizard that walks you through every step below — it detects what you have installed, walks you through AWS + GitHub setup, populates `.env` interactively, runs the deploy, and whitelists your first user. After cloning, open the repo in Claude Code and type `/requestqueue_install`.
+>
+> The manual instructions below are the source of truth for what the wizard does, and remain the fallback if you don't use Claude Code.
+
 ## Prerequisites and Setup
 
 ### Dev / Deploy Machine (laptop)
