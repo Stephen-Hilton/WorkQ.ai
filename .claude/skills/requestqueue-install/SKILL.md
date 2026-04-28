@@ -1,8 +1,9 @@
 ---
+name: requestqueue-install
 description: Interactive install wizard for RequestQueue. Walks through prereqs, AWS + GitHub setup, .env values, deploy, and first-user whitelist. Idempotent across restarts.
 ---
 
-# /requestqueue_install — Install Wizard
+# /requestqueue-install — Install Wizard
 
 You are guiding the user step-by-step through a full RequestQueue installation. The user invoked this skill expecting a **wizard experience** — patient, explanatory, one decision at a time. Do **not** batch operations or skip ahead.
 
@@ -19,7 +20,7 @@ The canonical README is at `README.md`; this wizard is its executable form. When
    - Implement the fix (could be a README correction, a script bug fix, a clarification in this skill itself, an idempotency hole, anything).
    - Run the relevant verification (tests, syntax check, lint).
    - Commit + push the fix with a clear message referencing the user's report.
-   - Tell the user: "Issue addressed and pushed. The wizard is **idempotent** — re-run `/requestqueue_install` to start over from Phase 0; already-done steps will detect themselves and skip."
+   - Tell the user: "Issue addressed and pushed. The wizard is **idempotent** — re-run `/requestqueue-install` to start over from Phase 0; already-done steps will detect themselves and skip."
 
 3. **Every phase must be idempotent.** Before doing work, *detect whether it's already done* and skip with a clear "already done — moving on" message. Re-running the wizard from a fully-installed state should reach the end without making any changes.
 
@@ -28,6 +29,8 @@ The canonical README is at `README.md`; this wizard is its executable form. When
 5. **Communicate before each phase.** Tell the user what's about to happen and why. Pause for input. Then run.
 
 6. **Don't skip the "Report an issue" option to save tokens.** It is the entire point of this wizard's first run — discovering install bugs.
+
+7. **Interactive commands cannot be run from this side.** Claude Code's `Bash` tool does not connect user stdin to spawned processes, and the user-typed `! <cmd>` prefix has the same limitation — both will hit `EOF when reading a line` (or block forever) on any command that reads from a TTY. This includes `aws configure`, `aws configure sso`, `gh auth login`, `sam deploy --guided`, and any other command that prompts the user mid-run. **Always instruct the user to open a separate terminal window** (Terminal.app, iTerm, the IDE's integrated terminal, a tmux pane, etc.), `cd` into the repo, and run the interactive command there. Then `AskUserQuestion` to wait for them to confirm completion, and verify state from this side with a non-interactive read-only command (`aws sts get-caller-identity`, `gh auth status`, etc.). Never instruct the user to use `! aws configure` — it does not work.
 
 ## STANDARD ASKUSERQUESTION PATTERN
 
@@ -131,7 +134,7 @@ Walk the user through the README "AWS Account / One-Time Setup" steps:
 
 1. `AskUserQuestion`: "Do you have an AWS account?"
    - "Yes" → continue.
-   - "No, I need to create one" → print `https://console.aws.amazon.com/` and explain they'll need to come back. Suggest they finish account creation, then re-run `/requestqueue_install` (it'll skip everything else they've already done).
+   - "No, I need to create one" → print `https://console.aws.amazon.com/` and explain they'll need to come back. Suggest they finish account creation, then re-run `/requestqueue-install` (it'll skip everything else they've already done).
    - "Report an issue: ..."
 
 2. Walk through creating the deploy IAM user. Print the URL `https://console.aws.amazon.com/iam/home#/users` and instruct them to:
@@ -142,7 +145,25 @@ Walk the user through the README "AWS Account / One-Time Setup" steps:
    - Save the Access Key ID + Secret Access Key.
    - `AskUserQuestion`: "Done? Have you saved the access keys?" → "Yes, ready", "Not yet — give me a minute", "Report an issue".
 
-3. Run `aws configure --profile <chosen profile name>`. **Note: this is interactive** — the user will be prompted by the aws CLI itself. Tell them what's coming, then run it. Use `Bash` with the `aws configure --profile <name>` command. Once done, verify with `aws sts get-caller-identity --profile <name>`.
+3. **`aws configure` is interactive — it cannot be run from this side** (see CRITICAL RULES item 7; the `!` bash-prefix in Claude Code also hits EOF on stdin). Instruct the user:
+
+   > Open a separate terminal window, `cd` into this repo, and run:
+   > ```
+   > aws configure --profile <chosen profile name>
+   > ```
+   > It will prompt for four values:
+   > - **AWS Access Key ID** — paste the `AKIA…` value from the IAM access key page
+   > - **AWS Secret Access Key** — paste the secret (hidden as you type)
+   > - **Default region name** — `us-east-1` (or whatever matches `REQUESTQUEUE_AWS_REGION`)
+   > - **Default output format** — `json`
+   >
+   > When done, return here and confirm.
+
+   Then `AskUserQuestion`: "Done — configured the profile in another terminal?" Options: "Yes, configured", "I can't open another terminal — show me the manual file-write fallback", "Report an issue".
+
+   On "Yes": verify with `aws sts get-caller-identity --profile <name>` and proceed.
+
+   On "manual fallback": ask the user to paste the Access Key ID and Secret Access Key via two separate `AskUserQuestion` calls (warn them up front: secrets pasted into AskUserQuestion will appear in the conversation transcript). Then write `~/.aws/credentials` and `~/.aws/config` directly using a strip-then-append idempotent merge — never overwrite the whole file, since the user may have other profiles. Set region from `REQUESTQUEUE_AWS_REGION` and output to `json`. Verify with `aws sts get-caller-identity --profile <name>`.
 
 4. Write/update `REQUESTQUEUE_AWS_PROFILE` and `REQUESTQUEUE_AWS_REGION` in `.env` (use the same .env-merge pattern that `refresh_creds.sh` uses — strip-then-append, never overwrite the whole file).
 
@@ -159,7 +180,15 @@ Walk the user through the README "AWS Account / One-Time Setup" steps:
 
 1. Run `gh auth status 2>&1`.
 2. If logged in: tell the user "GitHub CLI is authenticated as `<username>`." Skip `gh auth login`.
-3. Otherwise: walk through `gh auth login` — it's interactive (asks for protocol, web vs token, etc.). Run it via `Bash`. Verify with `gh auth status`.
+3. Otherwise: **`gh auth login` is interactive — it cannot be run from this side** (see CRITICAL RULES item 7). Instruct the user:
+
+   > Open a separate terminal window and run:
+   > ```
+   > gh auth login
+   > ```
+   > Choose: **GitHub.com** → **HTTPS** → **Yes (authenticate Git)** → **Login with a web browser**. Copy the one-time code, paste it in the browser, approve. When done, return here.
+
+   Then `AskUserQuestion`: "Done — signed in?" Options: "Yes, signed in", "Report an issue". On yes, verify with `gh auth status`.
 
 **Fine-grained PAT** (separate from gh auth login — used by `local/build` for git push):
 
@@ -239,21 +268,47 @@ This is the big step: SAM deploy + webapp build + S3 sync + CloudFront invalidat
 1. Read `.requestqueue.outputs.json` if it exists.
 2. If it has a `webapp_url` and a `cognito_user_pool_id`: tell the user "A previous deploy exists (stack `<name>`, webapp `<url>`). Re-running `make publish` is safe and will produce a no-op CloudFormation changeset if nothing changed." Then `AskUserQuestion`: "Re-run anyway? (Recommended after `.env` changes; needed if you ran `refresh_creds.sh`.)" Options: "Yes, re-run (~1–2 min for empty changeset)", "Skip — already deployed", "Report an issue".
 
-**Run:**
+**First-run vs. re-run detection:**
 
-1. Brief the user: "First-deploy will run `sam deploy --guided` and ask several questions:
-   - Stack name (use the `REQUESTQUEUE_STACK_NAME` value — usually `requestqueue`)
-   - AWS Region (matches `REQUESTQUEUE_AWS_REGION`)
-   - Various confirmations like 'Allow SAM CLI IAM role creation' → answer **Y**
-   - 'Save arguments to configuration file' → answer **Y**
+Check for `samconfig.toml` at the repo root.
+- **Absent** → first deploy → `sam deploy --guided` will prompt interactively → user must run in a separate terminal (see CRITICAL RULES item 7).
+- **Present** → SAM has saved its config → `make publish` runs non-interactively → can run via `Bash` here.
+
+**Run (first deploy — `samconfig.toml` absent):**
+
+1. Brief the user: "First-deploy runs `sam deploy --guided`, which will ask several questions:
+   - **Stack Name** → enter the `REQUESTQUEUE_STACK_NAME` value from `.env` (usually `requestqueue`)
+   - **AWS Region** → enter the `REQUESTQUEUE_AWS_REGION` value (e.g. `us-east-1`)
+   - **Confirm changes before deploy** → `N` (CI-style)
+   - **Allow SAM CLI IAM role creation** → `Y`
+   - **Disable rollback** → `N`
+   - **Save arguments to configuration file** → `Y` (this writes `samconfig.toml` so future runs are non-interactive)
+   - **SAM configuration file** → accept default (`samconfig.toml`)
+   - **SAM configuration environment** → accept default (`default`)
    "
-2. `AskUserQuestion`: "Ready to deploy?" Options: "Yes, run it", "Show me what `make publish` does first", "Report an issue".
-3. Run `Bash`: `make publish`. **This is interactive on first run** — the SAM CLI will prompt the user. Don't try to pipe input.
-4. On success, read `.requestqueue.outputs.json` and print:
-   - `webapp_url` (the URL the user will sign up at)
-   - `api_url`
-   - `cognito_user_pool_id`
-5. On failure, capture the error, surface it, ask "Debug / retry / report-issue?".
+2. `AskUserQuestion`: "Ready to deploy?" Options: "Yes, walk me through opening a separate terminal", "Show me what `make publish` does first", "Report an issue".
+3. Instruct the user:
+
+   > Open a separate terminal window, `cd` into this repo, and run:
+   > ```
+   > make publish
+   > ```
+   > Answer the SAM prompts as listed above. The full deploy takes 5–10 minutes (CloudFormation create + webapp build + S3 sync + CloudFront invalidation). When you see `Successfully created/updated stack`, return here.
+
+   `AskUserQuestion`: "Done — deploy succeeded?" Options: "Yes, succeeded", "It failed (let's debug)", "Still running — check back in a minute", "Report an issue".
+
+**Run (re-deploy — `samconfig.toml` present):**
+
+1. `make publish` is non-interactive on subsequent runs. Run it directly via `Bash` here. Show progress.
+
+**On success (either path):**
+
+Read `.requestqueue.outputs.json` and print:
+- `webapp_url` (the URL the user will sign up at)
+- `api_url`
+- `cognito_user_pool_id`
+
+**On failure:** capture the error, surface it, ask "Debug / retry / report-issue?".
 
 ---
 
@@ -346,5 +401,5 @@ Tell the user the wizard ran cleanly and they're done.
 - Read `.env`, `.env.example`, `.requestqueue.outputs.json`, and `config/prompt_parts.yaml` to understand current state.
 - For `.env` edits: always read the file, modify in memory, write atomically via `.env.tmp` + `mv`. Match the strip-then-append idempotent pattern used in `scripts/refresh_creds.sh`.
 - Don't echo full secret values back to the user except where they explicitly need to copy them (e.g., service-user password to a different machine). Truncate access keys / tokens to first 4 + last 4 chars when echoing back.
-- After "Report an issue" → fix → push, end your turn with a clear "Run `/requestqueue_install` again to restart" — do **not** automatically re-invoke the skill.
+- After "Report an issue" → fix → push, end your turn with a clear "Run `/requestqueue-install` again to restart" — do **not** automatically re-invoke the skill.
 - The `Report an issue` flow exists specifically to discover bugs in this wizard, scripts, README, and SAM template. **Take user reports seriously.** A "this is confusing" report is just as actionable as a "this command failed" report — clarify the docs, don't just acknowledge.
