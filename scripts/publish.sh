@@ -2,14 +2,16 @@
 # scripts/publish.sh — full WorkQ.ai deploy pipeline.
 #
 # Phases:
-#   1. (--prompts-only or full) validate prompt_parts.yaml.
-#   2. (--prompts-only or full) sam build + sam deploy
+#   1. Validate config/prompt_parts.yaml.
+#   2. (skipped if --prompts-only) sam build + sam deploy.
 #      Writes .workq.outputs.json (snake_case keys mapped from CFN PascalCase).
 #   3. (--infra-only: stop here)
-#   4. pnpm/npm build the webapp using .workq.outputs.json.
-#   5. aws s3 sync ui/webapp/dist/ s3://<bucket>/.
-#   6. Upload prompts/prompt_parts.yaml + generated app.json to s3://<bucket>/config/.
-#   7. CloudFront invalidation.
+#   4. (skipped if --prompts-only) pnpm/npm build the webapp + s3 sync.
+#   5. Derive app.json from config/prompt_parts.yaml + WORKQ_DISPLAY_TIMEZONE,
+#      upload to s3://<bucket>/config/app.json. The full prompt_parts.yaml is
+#      NOT uploaded — only the area names reach the webapp, and only via
+#      app.json. See config/README.md.
+#   6. CloudFront invalidation.
 #
 # Usage:
 #   publish.sh                 # full pipeline
@@ -50,12 +52,12 @@ STACK="${WORKQ_STACK_NAME:-workq}"
 if command -v pnpm >/dev/null 2>&1; then PM="pnpm"; else PM="npm"; fi
 
 # ---------------------------------------------------------------------------
-# 1) Validate prompts/prompt_parts.yaml
+# 1) Validate config/prompt_parts.yaml
 # ---------------------------------------------------------------------------
-info "validating prompts/prompt_parts.yaml"
+info "validating config/prompt_parts.yaml"
 PYBIN="$(command -v python3 || command -v python)"
 [[ -n "${PYBIN}" ]] || err "python3 not found"
-"${PYBIN}" "${REPO_ROOT}/scripts/validate_prompt_parts.py" "${REPO_ROOT}/prompts/prompt_parts.yaml"
+"${PYBIN}" "${REPO_ROOT}/scripts/validate_prompt_parts.py" "${REPO_ROOT}/config/prompt_parts.yaml"
 
 # ---------------------------------------------------------------------------
 # 2) SAM deploy (skipped for --prompts-only)
@@ -144,14 +146,20 @@ fi
 # ---------------------------------------------------------------------------
 # 4) Runtime config upload
 # ---------------------------------------------------------------------------
-info "uploading runtime config (prompt_parts.yaml + app.json)"
-TZ_VAL="${WORKQ_DISPLAY_TIMEZONE:-UTC}"
+# We only publish a derived app.json (display_timezone + prompt_areas).
+# The full prompt_parts.yaml stays local — used by local/build only.
+info "deriving app.json from config/prompt_parts.yaml + WORKQ_DISPLAY_TIMEZONE"
 TMP_APP_JSON="$(mktemp)"
 trap 'rm -f "${TMP_APP_JSON}"' EXIT
-jq -n --arg tz "${TZ_VAL}" '{display_timezone: $tz}' > "${TMP_APP_JSON}"
+WORKQ_DISPLAY_TIMEZONE="${WORKQ_DISPLAY_TIMEZONE:-UTC}" \
+  "${PYBIN}" "${REPO_ROOT}/scripts/derive_app_config.py" \
+  "${REPO_ROOT}/config/prompt_parts.yaml" > "${TMP_APP_JSON}"
 
-aws s3 cp "${REPO_ROOT}/prompts/prompt_parts.yaml" "s3://${BUCKET}/config/prompt_parts.yaml" \
-  --content-type 'text/yaml' --cache-control 'public,max-age=60'
+# Best-effort delete of the legacy prompt_parts.yaml object if a previous
+# version of publish.sh uploaded it. Safe to ignore failures.
+aws s3 rm "s3://${BUCKET}/config/prompt_parts.yaml" >/dev/null 2>&1 || true
+
+info "uploading app.json to s3://${BUCKET}/config/"
 aws s3 cp "${TMP_APP_JSON}" "s3://${BUCKET}/config/app.json" \
   --content-type 'application/json' --cache-control 'public,max-age=60'
 

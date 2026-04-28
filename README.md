@@ -84,7 +84,7 @@ All env vars are prefixed `WORKQ_`. See `.env.example` for the canonical list wi
 | `WORKQ_POLLING_SECONDS` | local | Monitor poll interval. Default `30`. |
 | `WORKQ_BUILD_TIMEOUT_SECONDS` | local | Max claude wall-clock. Default `2700` (45 min). |
 | `WORKQ_DISPLAY_TIMEZONE` | webapp | Display-only TZ. Storage is always UTC. Default `UTC`. |
-| `WORKQ_PROMPT_PARTS_PATH` | local | Default `./prompts/prompt_parts.yaml`. |
+| `WORKQ_PROMPT_PARTS_PATH` | local | Default `./config/prompt_parts.yaml`. |
 
 ### GitHub PAT scopes
 
@@ -156,13 +156,15 @@ scripts/whitelist_user.sh -h
 
 Edits `/workq/email_whitelist` in SSM Parameter Store. Takes effect immediately (no redeploy).
 
-### Update `prompts/prompt_parts.yaml`
+### Update `config/prompt_parts.yaml`
 
 Edit the file in-repo, then:
 
 ```bash
-make publish-prompts          # validates, uploads to S3, invalidates CloudFront
+make publish-prompts          # validates, derives app.json, uploads to S3, invalidates CloudFront
 ```
+
+The full yaml stays local — only the area names reach the webapp (via `app.json`). See [`config/README.md`](config/README.md) for the rationale.
 
 Webapp picks up the new `reqarea` selector values within ~60s (CloudFront cache TTL).
 
@@ -214,9 +216,10 @@ Every `failed`/`pending review` response includes a copy-pasteable `# Recommende
 
 ```
 ├── apis/             # Lambda code (Python). One file per route + shared/.
+├── config/           # Runtime configuration (prompt_parts.yaml). Edit here.
 ├── infra/            # SAM template.
 ├── local/            # Monitor + build (Python). Runs on a separate machine.
-├── prompts/          # reqv1.md spec + prompt_parts.yaml.
+├── prompts/          # Spec / version artifacts (reqv1.md). Not runtime config.
 ├── scripts/          # publish, bootstrap_local, whitelist_user, validate_prompt_parts.
 ├── ui/webapp/        # React + Vite + TS + Tailwind + shadcn/ui.
 ├── Makefile          # deploy / publish / dev / monitor / validate.

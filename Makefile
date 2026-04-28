@@ -20,7 +20,7 @@ help:
 	@echo "  Deploy:"
 	@echo "    deploy             sam deploy (infra only)"
 	@echo "    publish            full pipeline: deploy + build + s3 sync + invalidate"
-	@echo "    publish-prompts    upload prompts/prompt_parts.yaml to S3 + invalidate"
+	@echo "    publish-prompts    derive app.json from config/prompt_parts.yaml + upload + invalidate"
 	@echo "    sam-sync           sam sync --watch (fast Lambda code iteration)"
 	@echo ""
 	@echo "  Run:"
@@ -37,7 +37,7 @@ install:
 	cd ui/webapp && pnpm install
 
 validate:
-	python3 scripts/validate_prompt_parts.py prompts/prompt_parts.yaml
+	python3 scripts/validate_prompt_parts.py config/prompt_parts.yaml
 	cd apis && uv run ruff check . && uv run mypy .
 	cd local && uv run ruff check . && uv run mypy .
 	cd ui/webapp && pnpm run lint && pnpm run typecheck

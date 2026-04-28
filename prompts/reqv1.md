@@ -46,14 +46,14 @@ Two config layers:
   - `WORKQ_POLLING_SECONDS` — monitor poll interval; default 30.
   - `WORKQ_BUILD_TIMEOUT_SECONDS` — max claude wall-clock; default 2700 (45 min). *(DECISION 9b.)*
   - `WORKQ_DISPLAY_TIMEZONE` — display-only TZ for timelog. UTC is always used for storage. Default `UTC`. Use abbreviations from <https://en.wikipedia.org/wiki/List_of_time_zone_abbreviations>.
-  - `WORKQ_PROMPT_PARTS_PATH` — path on disk; default `./prompts/prompt_parts.yaml`.
+  - `WORKQ_PROMPT_PARTS_PATH` — path on disk; default `./config/prompt_parts.yaml`.
 
 - **Deploy outputs (`.workq.outputs.json`, auto-written by `sam deploy`, gitignored):**
   - `webapp_url`, `api_url`, `cognito_user_pool_id`, `cognito_client_id`, `cognito_domain`, `s3_webapp_bucket`, `cloudfront_distribution_id`. Webapp `pnpm build` reads this to bake values into the bundle. *(DECISION 7, 23.)*
 
 ### `prompt_parts.yaml`
 
-Per-project prompt customization. Source of truth lives at `prompts/prompt_parts.yaml` in this repo *(DECISION 24)*; `scripts/publish.sh` uploads it to `s3://<webapp-bucket>/config/prompt_parts.yaml` so the webapp can read it at runtime, and `local/build` reads it from disk.
+Per-project prompt customization. Source of truth lives at `config/prompt_parts.yaml` in this repo *(DECISION 24, refined: the file moved out of `prompts/` so that directory holds version-spec artifacts only)*. `local/build` reads the full file from disk; the webapp **does not** receive the yaml itself — at deploy time, `scripts/derive_app_config.py` extracts the `areas:` keys and writes them into `app.json`, which is uploaded to `s3://<webapp-bucket>/config/app.json`. The pre/post text never reaches the webapp.
 
 Shape *(DECISION 3 — map-of-objects, not lists; spec's original example was malformed YAML)*:
 
@@ -270,7 +270,7 @@ REST CRUD on a single resource. Cognito JWT auth on every route. *(DECISION 4.)*
   1. `scripts/bootstrap_local.sh` (uses dev creds to fetch service-user password from Secrets Manager).
   2. `python -m local.monitor` (or `make monitor`) — long-running.
 - **Updating prompts/config without code changes:**
-  - Edit `prompts/prompt_parts.yaml` → `aws s3 cp prompts/prompt_parts.yaml s3://<bucket>/config/` + `aws cloudfront create-invalidation`.
+  - Edit `config/prompt_parts.yaml` → `make publish-prompts` (validates, derives `app.json`, uploads, invalidates CloudFront). The full yaml is **not** uploaded.
   - Edit SSM whitelist via `scripts/whitelist_user.sh`.
 
 ---

@@ -1,38 +1,24 @@
 // Loads runtime config that lives on S3 (uploaded by scripts/publish.sh).
 // Build-time constants are baked in via vite.config.ts; runtime config is
-// the editable bits: prompt_parts.yaml (areas) and app.json (timezone).
+// the editable bits — display timezone and the list of `reqarea` names that
+// the user can pick from. Both are derived from config/prompt_parts.yaml +
+// WORKQ_DISPLAY_TIMEZONE by scripts/derive_app_config.py at deploy time.
+//
+// The full prompt_parts.yaml is NEVER published — pre/post text stays
+// server-side. See config/README.md.
 
-import yaml from "js-yaml";
 import type { RuntimeConfig } from "../types";
 
 const WEBAPP_BASE = (() => {
-  // CloudFront serves both the webapp and /config/* from the same origin.
   if (typeof window !== "undefined") {
     return `${window.location.origin}`;
   }
   return __WORKQ_WEBAPP_URL__;
 })();
 
-interface PromptPartsYaml {
-  areas?: Record<string, unknown>;
-}
-
 interface AppJson {
   display_timezone?: string;
-}
-
-async function fetchPromptAreas(): Promise<string[]> {
-  try {
-    const resp = await fetch(`${WEBAPP_BASE}/config/prompt_parts.yaml`, { cache: "no-cache" });
-    if (!resp.ok) return ["General"];
-    const text = await resp.text();
-    const parsed = yaml.load(text) as PromptPartsYaml | null;
-    const areas = parsed?.areas ? Object.keys(parsed.areas) : [];
-    if (!areas.includes("General")) areas.unshift("General");
-    return areas;
-  } catch {
-    return ["General"];
-  }
+  prompt_areas?: string[];
 }
 
 async function fetchAppJson(): Promise<AppJson> {
@@ -49,7 +35,11 @@ let cached: RuntimeConfig | null = null;
 
 export async function loadRuntimeConfig(): Promise<RuntimeConfig> {
   if (cached) return cached;
-  const [areas, app] = await Promise.all([fetchPromptAreas(), fetchAppJson()]);
+  const app = await fetchAppJson();
+  const areas = (app.prompt_areas && app.prompt_areas.length > 0)
+    ? app.prompt_areas.slice()
+    : ["General"];
+  if (!areas.includes("General")) areas.unshift("General");
   cached = {
     api_url: __WORKQ_API_URL__,
     cognito_user_pool_id: __WORKQ_COGNITO_USER_POOL_ID__,

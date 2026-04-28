@@ -264,7 +264,7 @@ def _next_steps_nonzero_exit(reqid: str, branch: str | None, exit_code: int) -> 
         f"# Recommended Next Step\n\n"
         f"Claude exited with code {exit_code}. Common causes:\n\n"
         f"- The headless `claude code` binary itself crashed — check `claude --version`.\n"
-        f"- The prompt was malformed — inspect `prompts/prompt_parts.yaml` and the "
+        f"- The prompt was malformed — inspect `config/prompt_parts.yaml` and the "
         f"  rendered prompt by running `local/build` with `LOG_LEVEL=DEBUG`.\n"
         f"- Worktree at `local/workspace/{reqid}/` may have partial state; remove or "
         f"  inspect.\n"

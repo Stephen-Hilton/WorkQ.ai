@@ -124,10 +124,10 @@ areas:
       Note any breaking changes, and confirm `sam deploy` succeeds after your
       change. Include the `sam deploy` output in your details.
 
-  prompts:
-    pre: "Change pertains to `/prompts/prompt_parts.yaml` or related prompt logic."
+  config:
+    pre: "Change pertains to `/config/prompt_parts.yaml` or related prompt logic."
     post: |
-      Run `python3 scripts/validate_prompt_parts.py prompts/prompt_parts.yaml`
+      Run `python3 scripts/validate_prompt_parts.py config/prompt_parts.yaml`
       and confirm it passes.
 
   scripts:

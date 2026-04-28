@@ -127,7 +127,7 @@ def load() -> Config:
         polling_seconds=int(env_or("WORKQ_POLLING_SECONDS", "30")),
         build_timeout_seconds=int(env_or("WORKQ_BUILD_TIMEOUT_SECONDS", "2700")),
         prompt_parts_path=Path(
-            env_or("WORKQ_PROMPT_PARTS_PATH", str(root / "prompts" / "prompt_parts.yaml"))
+            env_or("WORKQ_PROMPT_PARTS_PATH", str(root / "config" / "prompt_parts.yaml"))
         ).expanduser(),
         github_repo_url=env_or("WORKQ_GITHUB_REPO_URL"),
         github_branch=env_or("WORKQ_GITHUB_BRANCH", "main"),

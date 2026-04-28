@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate `prompts/prompt_parts.yaml` against the WorkQ schema.
+"""Validate `config/prompt_parts.yaml` against the WorkQ schema.
 
 Run as part of `scripts/publish.sh` and as a CI step on PRs that touch the file.
 
@@ -14,7 +14,7 @@ Exits 0 on success, non-zero on schema violations.
 
 Usage:
   scripts/validate_prompt_parts.py [path]
-  default path: prompts/prompt_parts.yaml
+  default path: config/prompt_parts.yaml
 """
 
 from __future__ import annotations
@@ -99,7 +99,7 @@ def validate(path: Path) -> int:
 
 
 def main() -> int:
-    path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("prompts/prompt_parts.yaml")
+    path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("config/prompt_parts.yaml")
     return validate(path)
 
 
