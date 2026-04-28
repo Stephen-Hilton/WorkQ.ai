@@ -216,3 +216,18 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# -----------------------------------------------------------------------------
+# WorkQ.ai
+# -----------------------------------------------------------------------------
+.workq.outputs.json
+local/logs/
+local/workspace/
+local/.env.local
+ui/webapp/dist/
+ui/webapp/node_modules/
+ui/webapp/.vite/
+node_modules/
+.DS_Store
+samconfig.toml.bak
+.aws-sam/
