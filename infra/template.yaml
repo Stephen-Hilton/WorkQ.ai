@@ -1,0 +1,519 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: WorkQ.ai — serverless work-queue with Cognito-gated webapp and local builder
+
+# ---------------------------------------------------------------------------
+# Parameters (mostly sourced from .env via samconfig.toml or --parameter-overrides)
+# ---------------------------------------------------------------------------
+Parameters:
+  StackName:
+    Type: String
+    Default: workq
+    Description: Logical stack name (used in resource names).
+
+  EmailWhitelistSeed:
+    Type: String
+    Default: ""
+    Description: Initial value for /workq/email_whitelist (comma-separated emails / @domains). Manage via scripts/whitelist_user.sh after first deploy.
+
+  CustomDomain:
+    Type: String
+    Default: ""
+    Description: Apex domain (e.g. example.com). Empty = use AWS-default URLs. If set, webapp = work.<domain>, API = api.<domain>.
+
+  CustomDomainCertArn:
+    Type: String
+    Default: ""
+    Description: ACM cert ARN in us-east-1 covering both work.<domain> and api.<domain>. Required if CustomDomain is set.
+
+  CognitoDomainPrefix:
+    Type: String
+    Default: ""
+    Description: Globally-unique prefix for the Cognito hosted UI (e.g. workq-yourorg). Default = "<StackName>-<AccountId>".
+
+# ---------------------------------------------------------------------------
+# Conditions
+# ---------------------------------------------------------------------------
+Conditions:
+  HasCustomDomain: !Not [!Equals [!Ref CustomDomain, ""]]
+  HasExplicitCognitoPrefix: !Not [!Equals [!Ref CognitoDomainPrefix, ""]]
+
+# ---------------------------------------------------------------------------
+# Globals (defaults applied to every Serverless::Function)
+# ---------------------------------------------------------------------------
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 15
+    MemorySize: 512
+    Architectures:
+      - arm64
+    Tracing: Active
+    Environment:
+      Variables:
+        DDB_TABLE: !Ref RequestsTable
+        WHITELIST_PARAM_NAME: !Sub "/${StackName}/email_whitelist"
+        SERVICE_USER_EMAIL: "service-local-monitor@workq.internal"
+
+  Api:
+    OpenApiVersion: 3.0.1
+    Cors:
+      AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+      AllowHeaders: "'Authorization,Content-Type,X-Amz-Date,X-Amz-Security-Token,X-Api-Key'"
+      AllowOrigin: "'*'"
+
+# ---------------------------------------------------------------------------
+# Resources
+# ---------------------------------------------------------------------------
+Resources:
+
+  # -------------------------------------------------------------------------
+  # DynamoDB
+  # -------------------------------------------------------------------------
+  # PK = reqid only. No sort key, no GSI. See spec DECISION 1.
+  RequestsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${StackName}-requests"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: reqid
+          AttributeType: S
+      KeySchema:
+        - AttributeName: reqid
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      Tags:
+        - Key: Project
+          Value: !Ref StackName
+
+  # -------------------------------------------------------------------------
+  # SSM Parameter Store — email whitelist
+  # -------------------------------------------------------------------------
+  EmailWhitelistParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${StackName}/email_whitelist"
+      Type: String
+      Value: !Ref EmailWhitelistSeed
+      Description: WorkQ.ai email whitelist for Cognito sign-up. Manage via scripts/whitelist_user.sh.
+
+  # -------------------------------------------------------------------------
+  # Secrets Manager — service-user password
+  # -------------------------------------------------------------------------
+  ServiceUserSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub "/${StackName}/service-local-monitor/password"
+      Description: Cognito service-user password for local/monitor + local/build
+      GenerateSecretString:
+        PasswordLength: 32
+        ExcludePunctuation: false
+        IncludeSpace: false
+        RequireEachIncludedType: true
+
+  # -------------------------------------------------------------------------
+  # Cognito
+  # -------------------------------------------------------------------------
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub "${StackName}-users"
+      AutoVerifiedAttributes:
+        - email
+      UsernameAttributes:
+        - email
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Required: true
+          Mutable: true
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 12
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+          RequireUppercase: true
+      LambdaConfig:
+        PreSignUp: !GetAtt PreSignupFunction.Arn
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: verified_email
+            Priority: 1
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub "${StackName}-client"
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      # 24h access (max) and 30d refresh, per DECISION 9.
+      AccessTokenValidity: 24
+      IdTokenValidity: 24
+      RefreshTokenValidity: 30
+      TokenValidityUnits:
+        AccessToken: hours
+        IdToken: hours
+        RefreshToken: days
+      ReadAttributes:
+        - email
+      WriteAttributes:
+        - email
+      PreventUserExistenceErrors: ENABLED
+
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !If
+        - HasExplicitCognitoPrefix
+        - !Ref CognitoDomainPrefix
+        - !Sub "${StackName}-${AWS::AccountId}"
+      UserPoolId: !Ref UserPool
+
+  PreSignupFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${StackName}-pre-signup"
+      CodeUri: ../apis/
+      Handler: handlers.pre_signup.handler
+      Description: Cognito pre-signup trigger — gates sign-up against SSM whitelist
+      Environment:
+        Variables:
+          WHITELIST_PARAM_NAME: !Sub "/${StackName}/email_whitelist"
+      Policies:
+        - SSMParameterReadPolicy:
+            ParameterName: !Sub "${StackName}/email_whitelist"
+
+  PreSignupInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt PreSignupFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: cognito-idp.amazonaws.com
+      SourceArn: !GetAtt UserPool.Arn
+
+  # -------------------------------------------------------------------------
+  # Custom resource — bootstrap the service user on first deploy
+  # -------------------------------------------------------------------------
+  ServiceUserBootstrapFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${StackName}-service-user-bootstrap"
+      CodeUri: ../apis/
+      Handler: custom_resources.service_user.handler
+      Timeout: 60
+      Environment:
+        Variables:
+          USER_POOL_ID: !Ref UserPool
+          SERVICE_USER_EMAIL: "service-local-monitor@workq.internal"
+          SECRET_ARN: !Ref ServiceUserSecret
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - cognito-idp:AdminCreateUser
+                - cognito-idp:AdminSetUserPassword
+                - cognito-idp:AdminGetUser
+                - cognito-idp:AdminDeleteUser
+              Resource: !GetAtt UserPool.Arn
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource: !Ref ServiceUserSecret
+
+  ServiceUserBootstrap:
+    Type: Custom::ServiceUser
+    DependsOn: UserPoolClient
+    Properties:
+      ServiceToken: !GetAtt ServiceUserBootstrapFunction.Arn
+      UserPoolId: !Ref UserPool
+      SecretArn: !Ref ServiceUserSecret
+      Email: "service-local-monitor@workq.internal"
+
+  # -------------------------------------------------------------------------
+  # API Gateway (Cognito authorizer; webapp + local both use it)
+  # -------------------------------------------------------------------------
+  RestApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub "${StackName}-api"
+      StageName: prod
+      Auth:
+        DefaultAuthorizer: CognitoAuth
+        Authorizers:
+          CognitoAuth:
+            UserPoolArn: !GetAtt UserPool.Arn
+            Identity:
+              Header: Authorization
+
+  # -------------------------------------------------------------------------
+  # API Lambdas (one per route)
+  # -------------------------------------------------------------------------
+  GetIdFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${StackName}-get-id"
+      CodeUri: ../apis/
+      Handler: handlers.get_id.handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref RequestsTable
+      Events:
+        Get:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            Path: /id/{reqid}
+            Method: get
+
+  GetStatusFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${StackName}-get-status"
+      CodeUri: ../apis/
+      Handler: handlers.get_status.handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref RequestsTable
+      Events:
+        Get:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            Path: /status/{status}
+            Method: get
+
+  PostIdFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${StackName}-post-id"
+      CodeUri: ../apis/
+      Handler: handlers.post_id.handler
+      Policies:
+        - DynamoDBWritePolicy:
+            TableName: !Ref RequestsTable
+      Events:
+        Post:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            Path: /id
+            Method: post
+
+  PutIdFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${StackName}-put-id"
+      CodeUri: ../apis/
+      Handler: handlers.put_id.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref RequestsTable
+      Events:
+        Put:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            Path: /id/{reqid}
+            Method: put
+
+  DeleteIdFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${StackName}-delete-id"
+      CodeUri: ../apis/
+      Handler: handlers.delete_id.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref RequestsTable
+      Events:
+        Delete:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            Path: /id/{reqid}
+            Method: delete
+
+  # -------------------------------------------------------------------------
+  # Webapp hosting (S3 private + CloudFront with OAC)
+  # -------------------------------------------------------------------------
+  WebappBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${StackName}-webapp-${AWS::AccountId}-${AWS::Region}"
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Suspended
+
+  CloudFrontOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "${StackName}-oac"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  WebappDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub "${StackName} — webapp + runtime config"
+        DefaultRootObject: index.html
+        HttpVersion: http2and3
+        PriceClass: PriceClass_100
+        Aliases: !If
+          - HasCustomDomain
+          - [!Sub "work.${CustomDomain}"]
+          - !Ref AWS::NoValue
+        ViewerCertificate: !If
+          - HasCustomDomain
+          - AcmCertificateArn: !Ref CustomDomainCertArn
+            SslSupportMethod: sni-only
+            MinimumProtocolVersion: TLSv1.2_2021
+          - CloudFrontDefaultCertificate: true
+        Origins:
+          - Id: webapp-bucket
+            DomainName: !GetAtt WebappBucket.RegionalDomainName
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+            OriginAccessControlId: !Ref CloudFrontOAC
+        DefaultCacheBehavior:
+          TargetOriginId: webapp-bucket
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD]
+          CachedMethods: [GET, HEAD]
+          Compress: true
+          # CachingOptimized
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+        CacheBehaviors:
+          # Runtime config: short TTL so prompt_parts.yaml / app.json updates
+          # propagate within ~60s without needing a CloudFront invalidation.
+          - PathPattern: /config/*
+            TargetOriginId: webapp-bucket
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD]
+            CachedMethods: [GET, HEAD]
+            Compress: true
+            # CachingDisabled (we'll rely on Cache-Control headers from upload)
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+
+  WebappBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebappBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${WebappBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${WebappDistribution}"
+
+  # -------------------------------------------------------------------------
+  # Optional API Gateway custom domain (only if CustomDomain set)
+  # -------------------------------------------------------------------------
+  ApiCustomDomain:
+    Type: AWS::ApiGateway::DomainName
+    Condition: HasCustomDomain
+    Properties:
+      DomainName: !Sub "api.${CustomDomain}"
+      RegionalCertificateArn: !Ref CustomDomainCertArn
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+      SecurityPolicy: TLS_1_2
+
+  ApiBasePathMapping:
+    Type: AWS::ApiGateway::BasePathMapping
+    Condition: HasCustomDomain
+    DependsOn: RestApiprodStage
+    Properties:
+      DomainName: !Ref ApiCustomDomain
+      RestApiId: !Ref RestApi
+      Stage: prod
+
+# ---------------------------------------------------------------------------
+# Outputs (consumed by webapp build + scripts/publish.sh; written to
+# .workq.outputs.json)
+# ---------------------------------------------------------------------------
+Outputs:
+  WebappUrl:
+    Description: Webapp URL (custom domain if set, else CloudFront default)
+    Value: !If
+      - HasCustomDomain
+      - !Sub "https://work.${CustomDomain}"
+      - !Sub "https://${WebappDistribution.DomainName}"
+
+  ApiUrl:
+    Description: API base URL (custom domain if set, else API Gateway default)
+    Value: !If
+      - HasCustomDomain
+      - !Sub "https://api.${CustomDomain}"
+      - !Sub "https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/prod"
+
+  CognitoUserPoolId:
+    Description: Cognito user pool ID
+    Value: !Ref UserPool
+
+  CognitoClientId:
+    Description: Cognito app client ID
+    Value: !Ref UserPoolClient
+
+  CognitoDomain:
+    Description: Cognito hosted UI domain
+    Value: !Sub "${UserPoolDomain}.auth.${AWS::Region}.amazoncognito.com"
+
+  CognitoRegion:
+    Description: AWS region for Cognito
+    Value: !Ref AWS::Region
+
+  S3WebappBucket:
+    Description: S3 bucket holding the webapp bundle and runtime config
+    Value: !Ref WebappBucket
+
+  CloudfrontDistributionId:
+    Description: CloudFront distribution ID (for cache invalidation)
+    Value: !Ref WebappDistribution
+
+  ServiceUserSecretArn:
+    Description: Secrets Manager ARN holding the local-server Cognito password
+    Value: !Ref ServiceUserSecret
+
+  ServiceUserEmail:
+    Description: Cognito username for the local-server service user
+    Value: "service-local-monitor@workq.internal"
+
+  ApiCustomDomainTarget:
+    Condition: HasCustomDomain
+    Description: CNAME target for api.<domain>
+    Value: !GetAtt ApiCustomDomain.RegionalDomainName
+
+  WebappCustomDomainTarget:
+    Condition: HasCustomDomain
+    Description: CNAME target for work.<domain>
+    Value: !GetAtt WebappDistribution.DomainName
