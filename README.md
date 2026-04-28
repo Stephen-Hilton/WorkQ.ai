@@ -39,6 +39,7 @@ git clone https://github.com/<you>/RequestQueue.ai.git
 cd RequestQueue.ai
 cp .env.example .env          # then edit .env (see env-var reference below)
 make install                  # uv sync + pnpm install
+scripts/refresh_creds.sh      # generate the service-user password into .env
 make publish                  # sam deploy --guided + pnpm build + s3 sync + cloudfront invalidate
 scripts/whitelist_user.sh -a yourname@yourdomain.com    # or -a @yourdomain.com
 ```
@@ -56,24 +57,29 @@ This is the server that will monitor for new queued work and run `claude code` a
 
 - Same Python + `uv`
 - `git`, `gh`, `claude` (Claude Code)
-- One run of `scripts/bootstrap_local.sh` to fetch the service-user credentials (no AWS keys needed at runtime)
+- The two `REQUESTQUEUE_SERVICE_USER_*` lines from your deploy machine's `.env` (no AWS keys needed at runtime)
 
 <br>
 
 **One-Time Setup:**
 
+If your deploy machine and local server are the **same box**, you're already done — `make monitor` from the same checkout. If they're **different machines**:
+
 ```bash
 git clone https://github.com/<you>/RequestQueue.ai.git
 cd RequestQueue.ai
-cp .env.example .env          # set REQUESTQUEUE_AWS_REGION + REQUESTQUEUE_AWS_PROFILE temporarily for bootstrap
+cp .env.example .env          # then edit .env
 make install
-scripts/bootstrap_local.sh    # one-time fetch of service-user password from Secrets Manager
-                              # writes to ~/.config/requestqueue/credentials
-# AWS keys are no longer needed at runtime — you may remove them from .env now
-make monitor                  # starts python -m local.monitor (long-running)
+# Open .env and paste in the two REQUESTQUEUE_SERVICE_USER_EMAIL / _PASSWORD
+# lines from your deploy machine's .env (the values written by refresh_creds.sh).
+# You also need REQUESTQUEUE_GITHUB_REPO_URL, _BRANCH, _TOKEN, plus polling /
+# timeout / timezone settings. AWS keys are NOT needed here.
+make monitor                  # starts python -m monitor (long-running)
 ```
 
 Use `make monitor-bg` to run it in the background and tail the log. Use a `systemd`/`launchd` unit on a real server.
+
+> **Why no AWS keys?** The local server only authenticates to the API as the Cognito `service-local-monitor` user. That's a username + password — narrow blast radius (it can only call WorkQ's REST endpoints, nothing else in your AWS account). See "Why two creds?" below.
 
 ---
 
@@ -89,10 +95,10 @@ Use `make monitor-bg` to run it in the background and tail the log. Use a `syste
 
 **One-Time Setup:**
 
-1. **Create a dedicated IAM user for deploys.** Don't use root. Console → IAM → Users → "Create user" → name it `requestqueue-deploy` (or similar). Skip console access; you only need programmatic access.
+1. **Create a dedicated IAM user for deploys.** Don't use root. Console → IAM → IAM Users → "Create user" → name it `requestqueue-deploy` (or similar). Skip console access; you only need programmatic access.
 
 2. **Attach permissions.** Pick one of:
-   - **Recommended for personal accounts:** attach the AWS-managed `AdministratorAccess` policy. SAM creates a wide variety of resources (Lambda, API Gateway, Cognito, DynamoDB, S3, CloudFront, IAM execution roles for the Lambdas), so a deploy user that can do anything is by far the simplest path.
+   - **Recommended for personal accounts:** "Attach policies directly" and the AWS-managed `AdministratorAccess` policy. SAM creates a wide variety of resources (Lambda, API Gateway, Cognito, DynamoDB, S3, CloudFront, IAM execution roles for the Lambdas), so a deploy user that can do anything is by far the simplest path.
    - **For shared / locked-down accounts:** see "Scoped-down permissions" below for a custom policy.
 
 3. **Create an access key for that user.** User → Security credentials → "Create access key" → "Command Line Interface (CLI)" → save the Access Key ID + Secret Access Key.
@@ -126,7 +132,6 @@ The deploy user needs to be able to create/update/delete resources across these 
 | CloudFront | `cloudfront:*` |
 | IAM | `iam:CreateRole`, `iam:DeleteRole`, `iam:GetRole`, `iam:PassRole`, `iam:AttachRolePolicy`, `iam:DetachRolePolicy`, `iam:PutRolePolicy`, `iam:DeleteRolePolicy`, `iam:CreateServiceLinkedRole`, `iam:TagRole` (needed because SAM creates execution roles for each Lambda) |
 | SSM Parameter Store | `ssm:GetParameter`, `ssm:GetParameters`, `ssm:PutParameter`, `ssm:DeleteParameter` on `arn:aws:ssm:*:*:parameter/requestqueue/*` |
-| Secrets Manager | `secretsmanager:CreateSecret`, `secretsmanager:UpdateSecret`, `secretsmanager:DeleteSecret`, `secretsmanager:DescribeSecret`, `secretsmanager:GetSecretValue`, `secretsmanager:TagResource` on `arn:aws:secretsmanager:*:*:secret:/requestqueue/*` |
 | CloudWatch Logs | `logs:CreateLogGroup`, `logs:DeleteLogGroup`, `logs:DescribeLogGroups`, `logs:PutRetentionPolicy`, `logs:TagResource` |
 | ACM (only if custom domain) | `acm:DescribeCertificate` on the cert ARN |
 
@@ -136,7 +141,6 @@ After your first successful `make publish`, you can tighten further. **Ongoing o
 - `s3:PutObject` on `arn:aws:s3:::requestqueue-webapp-*/config/*`
 - `cloudfront:CreateInvalidation` on the distribution ARN
 - `cloudformation:DescribeStacks` (to fetch outputs)
-- `secretsmanager:GetSecretValue` on the service-user secret (only needed once, to bootstrap a new local server)
 
 You can leave the `requestqueue-deploy` user as-is and just rotate to a tighter user later, or have two separate users from the start (`requestqueue-deploy` for stack creation, `requestqueue-ops` for day-to-day).
 
@@ -144,7 +148,7 @@ You can leave the `requestqueue-deploy` user as-is and just rotate to a tighter 
 
 **Cost expectation:**
 
-At low volume (a few hundred requests, 30s polling), this app costs effectively **\~\$0.50–\$1.00 / month**:
+At low volume (a few hundred requests, 30s polling), this app costs effectively **\~\$0.10 / month** (essentially free — well under the AWS billing display threshold):
 
 | Service | Free tier | Typical use here | Cost |
 |---|---|---|---|
@@ -154,11 +158,10 @@ At low volume (a few hundred requests, 30s polling), this app costs effectively 
 | S3 | 5 GB + 20k GETs | tiny bundle, low traffic | < \$0.05 |
 | CloudFront | 1 TB egress for 12mo | low | \$0 |
 | Cognito | 50k MAU forever | a handful of users | \$0 |
-| **Secrets Manager** | none | 1 secret | **\$0.40** |
 | SSM Parameter Store | unlimited standard params | 1 param | \$0 |
 | CloudWatch Logs | 5 GB/mo | low | < \$0.05 |
 
-Heavy use (frequent builds, many users, verbose logging) might push this into single-digit dollars/mo.
+Heavy use (frequent builds, many users, verbose logging) might push this into single-digit dollars/mo. Note: an earlier version used Secrets Manager (~\$0.40/mo); we eliminated it by having you supply the service-user password directly in `.env` — see [`prompts/reqv1.md`](prompts/reqv1.md).
 
 ---
 
@@ -268,6 +271,22 @@ The full yaml stays local — only the area names reach the webapp (via `app.jso
 
 Webapp picks up the new `reqarea` selector values within ~60s (CloudFront cache TTL).
 
+### Rotate the Cognito service-user password
+
+Manual rotation is rare for personal projects (the password is sitting in two `.env` files, both gitignored), but if you ever need to:
+
+```bash
+# On the deploy machine:
+scripts/refresh_creds.sh      # backs up .env to backups/env/.env_<ts>; writes a fresh password
+make publish                  # applies the new password to Cognito (NoEcho param → custom resource)
+# If your local server is a different machine: copy the two
+# REQUESTQUEUE_SERVICE_USER_* lines from .env to the local server's .env, then
+# restart the monitor (or wait — the running monitor will auto-fall-back to
+# password login on the next refresh-token cycle).
+```
+
+Backups under `backups/env/` are gitignored and accumulate one per run; clean them up periodically.
+
 ### Restart the monitor / build (after a code change to `local/`)
 
 If you changed `local/monitor`, restart `make monitor`. If you changed `local/build`, no restart needed — the next request spawns a fresh subprocess.
@@ -320,7 +339,7 @@ Every `failed`/`pending review` response includes a copy-pasteable `# Recommende
 ├── infra/            # SAM template.
 ├── local/            # Monitor + build (Python). Runs on a separate machine.
 ├── prompts/          # Spec / version artifacts (reqv1.md). Not runtime config.
-├── scripts/          # publish, bootstrap_local, whitelist_user, validate_prompt_parts.
+├── scripts/          # publish, refresh_creds, whitelist_user, validate_prompt_parts.
 ├── ui/webapp/        # React + Vite + TS + Tailwind + shadcn/ui.
 ├── Makefile          # deploy / publish / dev / monitor / validate.
 └── .env.example      # canonical env var reference.

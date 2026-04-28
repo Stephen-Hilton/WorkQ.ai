@@ -66,7 +66,16 @@ PYBIN="$(command -v python3 || command -v python)"
 if (( PROMPTS_ONLY == 0 )); then
   command -v sam >/dev/null || err "sam CLI not installed (brew install aws-sam-cli)"
 
+  # Validate the user supplied a service-user password.
+  if [[ -z "${REQUESTQUEUE_SERVICE_USER_PASSWORD:-}" ]]; then
+    err "REQUESTQUEUE_SERVICE_USER_PASSWORD is not set in .env. Run 'scripts/refresh_creds.sh' to generate one, or set it manually (16+ chars, must match Cognito password policy: lowercase, uppercase, digit)."
+  fi
+  if (( ${#REQUESTQUEUE_SERVICE_USER_PASSWORD} < 16 )); then
+    err "REQUESTQUEUE_SERVICE_USER_PASSWORD is too short (${#REQUESTQUEUE_SERVICE_USER_PASSWORD} chars). Minimum 16."
+  fi
+
   PARAM_OVERRIDES="StackName=${STACK}"
+  PARAM_OVERRIDES+=" ServiceUserPassword=${REQUESTQUEUE_SERVICE_USER_PASSWORD}"
   if [[ -n "${REQUESTQUEUE_EMAIL_WHITELIST:-}" ]]; then
     PARAM_OVERRIDES+=" EmailWhitelistSeed=${REQUESTQUEUE_EMAIL_WHITELIST}"
   fi
@@ -113,8 +122,7 @@ if (( PROMPTS_ONLY == 0 )); then
         cognito_region: (.CognitoRegion // ""),
         s3_webapp_bucket: (.S3WebappBucket // ""),
         cloudfront_distribution_id: (.CloudfrontDistributionId // ""),
-        service_user_email: (.ServiceUserEmail // ""),
-        service_user_secret_arn: (.ServiceUserSecretArn // "")
+        service_user_email: (.ServiceUserEmail // "")
       }
   ' > "${OUTPUTS_FILE}"
   info "wrote ${OUTPUTS_FILE}"

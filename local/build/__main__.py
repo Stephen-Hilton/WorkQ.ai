@@ -40,7 +40,7 @@ def main() -> int:
     config = load()
 
     if not config.api_url or not config.service_user_password:
-        log.error("local/build is not bootstrapped — run `scripts/bootstrap_local.sh`")
+        log.error("local/build is missing api_url or service-user creds — check .env (REQUESTQUEUE_SERVICE_USER_PASSWORD must be set)")
         return 2
 
     from shared.api_client import ApiClient

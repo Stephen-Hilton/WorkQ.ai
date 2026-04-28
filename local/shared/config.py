@@ -1,10 +1,8 @@
 """Config loader for local components.
 
 Reads, in order:
-  1. `.env` at repo root (deploy inputs).
+  1. `.env` at repo root (deploy inputs + Cognito service-user password).
   2. `.requestqueue.outputs.json` at repo root (deploy outputs from `sam deploy`).
-  3. `~/.config/requestqueue/credentials` (service-user password, written by
-     `scripts/bootstrap_local.sh`).
 
 Provides typed accessors so the rest of the codebase doesn't sprinkle
 `os.environ.get(...)` calls everywhere.
@@ -30,13 +28,6 @@ def repo_root() -> Path:
         if (parent / ".env.example").exists():
             return parent
     return Path.cwd()
-
-
-def credentials_path() -> Path:
-    custom = os.environ.get("REQUESTQUEUE_CREDENTIALS_PATH")
-    if custom:
-        return Path(custom).expanduser()
-    return Path.home() / ".config" / "requestqueue" / "credentials"
 
 
 @dataclass(frozen=True)
@@ -77,7 +68,6 @@ def _load_outputs(root: Path) -> dict[str, str]:
         "S3WebappBucket": "s3_webapp_bucket",
         "CloudfrontDistributionId": "cloudfront_distribution_id",
         "ServiceUserEmail": "service_user_email",
-        "ServiceUserSecretArn": "service_user_secret_arn",
     }
     out: dict[str, str] = dict(raw)
     for pascal, snake in aliases.items():
@@ -86,22 +76,11 @@ def _load_outputs(root: Path) -> dict[str, str]:
     return out
 
 
-def _load_credentials(path: Path) -> dict[str, str]:
-    if not path.exists():
-        return {}
-    try:
-        return json.loads(path.read_text())
-    except (OSError, ValueError) as e:
-        log.warning("could not read %s: %s", path, e)
-        return {}
-
-
 def load() -> Config:
     root = repo_root()
     load_dotenv(root / ".env", override=False)
 
     outputs = _load_outputs(root)
-    creds = _load_credentials(credentials_path())
 
     def env_or(key: str, fallback: str = "") -> str:
         return os.environ.get(key, fallback)
@@ -111,11 +90,11 @@ def load() -> Config:
     client_id = outputs.get("cognito_client_id", "") or env_or("REQUESTQUEUE_COGNITO_CLIENT_ID")
     region = outputs.get("cognito_region", "") or env_or("REQUESTQUEUE_AWS_REGION", "us-east-1")
     service_email = (
-        creds.get("email")
+        env_or("REQUESTQUEUE_SERVICE_USER_EMAIL")
         or outputs.get("service_user_email", "")
         or "service-local-monitor@requestqueue.internal"
     )
-    service_password = creds.get("password") or env_or("REQUESTQUEUE_SERVICE_USER_PASSWORD")
+    service_password = env_or("REQUESTQUEUE_SERVICE_USER_PASSWORD")
 
     return Config(
         api_url=api_url,

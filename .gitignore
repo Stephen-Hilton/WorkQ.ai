@@ -224,6 +224,7 @@ __marimo__/
 # RequestQueue.ai
 # -----------------------------------------------------------------------------
 .requestqueue.outputs.json
+backups/
 local/logs/
 local/workspace/
 local/.env.local

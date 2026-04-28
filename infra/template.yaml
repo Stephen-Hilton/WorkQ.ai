@@ -31,6 +31,12 @@ Parameters:
     Default: ""
     Description: Globally-unique prefix for the Cognito hosted UI (e.g. requestqueue-yourorg). Default = "<StackName>-<AccountId>".
 
+  ServiceUserPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 16
+    Description: Password for the Cognito service-user (service-local-monitor). Supplied by the user via REQUESTQUEUE_SERVICE_USER_PASSWORD in .env. Generate with `openssl rand -base64 32` (or via scripts/refresh_creds.sh).
+
 # ---------------------------------------------------------------------------
 # Conditions
 # ---------------------------------------------------------------------------
@@ -98,20 +104,6 @@ Resources:
       Type: String
       Value: !Ref EmailWhitelistSeed
       Description: RequestQueue.ai email whitelist for Cognito sign-up. Manage via scripts/whitelist_user.sh.
-
-  # -------------------------------------------------------------------------
-  # Secrets Manager — service-user password
-  # -------------------------------------------------------------------------
-  ServiceUserSecret:
-    Type: AWS::SecretsManager::Secret
-    Properties:
-      Name: !Sub "/${StackName}/service-local-monitor/password"
-      Description: Cognito service-user password for local/monitor + local/build
-      GenerateSecretString:
-        PasswordLength: 32
-        ExcludePunctuation: false
-        IncludeSpace: false
-        RequireEachIncludedType: true
 
   # -------------------------------------------------------------------------
   # Cognito
@@ -212,7 +204,6 @@ Resources:
         Variables:
           USER_POOL_ID: !Ref UserPool
           SERVICE_USER_EMAIL: "service-local-monitor@requestqueue.internal"
-          SECRET_ARN: !Ref ServiceUserSecret
       Policies:
         - Statement:
             - Effect: Allow
@@ -222,19 +213,19 @@ Resources:
                 - cognito-idp:AdminGetUser
                 - cognito-idp:AdminDeleteUser
               Resource: !GetAtt UserPool.Arn
-            - Effect: Allow
-              Action:
-                - secretsmanager:GetSecretValue
-              Resource: !Ref ServiceUserSecret
 
+  # The custom resource picks up the user-supplied password from
+  # ServiceUserPassword (NoEcho parameter, gitignored .env). Whenever the
+  # parameter changes (i.e., user rotates), CFN reruns this resource and the
+  # custom resource handler resets the Cognito user's password.
   ServiceUserBootstrap:
     Type: Custom::ServiceUser
     DependsOn: UserPoolClient
     Properties:
       ServiceToken: !GetAtt ServiceUserBootstrapFunction.Arn
       UserPoolId: !Ref UserPool
-      SecretArn: !Ref ServiceUserSecret
       Email: "service-local-monitor@requestqueue.internal"
+      Password: !Ref ServiceUserPassword
 
   # -------------------------------------------------------------------------
   # API Gateway (Cognito authorizer; webapp + local both use it)
@@ -500,12 +491,8 @@ Outputs:
     Description: CloudFront distribution ID (for cache invalidation)
     Value: !Ref WebappDistribution
 
-  ServiceUserSecretArn:
-    Description: Secrets Manager ARN holding the local-server Cognito password
-    Value: !Ref ServiceUserSecret
-
   ServiceUserEmail:
-    Description: Cognito username for the local-server service user
+    Description: Cognito username for the local-server service user (password is supplied via REQUESTQUEUE_SERVICE_USER_PASSWORD in .env)
     Value: "service-local-monitor@requestqueue.internal"
 
   ApiCustomDomainTarget:
