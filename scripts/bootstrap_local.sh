@@ -30,8 +30,9 @@ info() { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 [[ -f "${OUTPUTS_FILE}" ]] || err "${OUTPUTS_FILE} not found — run 'make publish' first"
 [[ -f "${ENV_FILE}" ]] || err "${ENV_FILE} not found — copy from .env.example and fill in"
 
-# shellcheck source=/dev/null
-set -a; source "${ENV_FILE}"; set +a
+# shellcheck source=lib_env.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib_env.sh"
+load_env "${ENV_FILE}"
 
 command -v aws >/dev/null || err "aws CLI not installed"
 command -v jq >/dev/null || err "jq not installed (brew install jq)"

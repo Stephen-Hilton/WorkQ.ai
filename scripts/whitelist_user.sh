@@ -61,8 +61,9 @@ if [[ "${ACTION}" != "list" && -z "${VALUE}" ]]; then
 fi
 
 [[ -f "${ENV_FILE}" ]] || err ".env not found at ${ENV_FILE}"
-# shellcheck source=/dev/null
-set -a; source "${ENV_FILE}"; set +a
+# shellcheck source=lib_env.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib_env.sh"
+load_env "${ENV_FILE}"
 
 REGION="${REQUESTQUEUE_AWS_REGION:-us-east-1}"
 STACK="${REQUESTQUEUE_STACK_NAME:-requestqueue}"

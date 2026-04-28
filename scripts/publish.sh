@@ -39,8 +39,9 @@ err() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 info() { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 
 [[ -f "${ENV_FILE}" ]] || err ".env not found at ${ENV_FILE} (copy from .env.example and fill in)"
-# shellcheck source=/dev/null
-set -a; source "${ENV_FILE}"; set +a
+# shellcheck source=lib_env.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib_env.sh"
+load_env "${ENV_FILE}"
 
 command -v aws >/dev/null || err "aws CLI not installed"
 command -v jq >/dev/null || err "jq not installed (brew install jq)"

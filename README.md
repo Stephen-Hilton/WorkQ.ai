@@ -11,12 +11,15 @@ See [`prompts/reqv1.md`](prompts/reqv1.md) for the full spec.
 I use this for all of my AI projects, usually by merging it into my apps' admin control center, as it allows me to queue up runtime errors for review and/or auto-fix. I also allows me to submit work to the AI coding agent via my mobile device from the beach.  Sand helps me code. 
 
 ---
+<br><br>
 
-## Quick start
+# Quick start
 
-### Prerequisites
+## Prerequisites and Setup
 
-On your **deploy machine** (typically your laptop):
+### Dev / Deploy Machine (laptop)
+
+**Prereqs:**
 
 - Python 3.12+, [`uv`](https://docs.astral.sh/uv/) (`brew install uv`)
 - Node 20+ and [`pnpm`](https://pnpm.io/) (`brew install pnpm`)
@@ -27,13 +30,9 @@ On your **deploy machine** (typically your laptop):
 - A GitHub repo you want claude to operate on (and a fine-grained PAT — see below)
 - *Optional:* a custom domain + an ACM certificate in `us-east-1` covering both `work.<domain>` and `api.<domain>` (or a wildcard `*.<domain>`)
 
-On your **local server** (laptop or otherwise):
+<br>
 
-- Same Python + `uv`
-- `git`, `gh`, `claude` (Claude Code)
-- One run of `scripts/bootstrap_local.sh` to fetch the service-user credentials (no AWS keys needed at runtime)
-
-### One-time setup
+**One-Time Setup:**
 
 ```bash
 git clone https://github.com/<you>/RequestQueue.ai.git
@@ -48,9 +47,20 @@ The first `make publish` runs `sam deploy --guided` which will prompt for stack 
 
 After publish, the deploy outputs (`webapp_url`, `api_url`, etc.) are written to `.requestqueue.outputs.json`. Open `webapp_url` in a browser, sign up with the whitelisted email, log in.
 
-### Set up the local server
+--- 
+### "Local" Server
 
-On the box that will actually run `claude code`:
+This is the server that will monitor for new queued work and run `claude code` as needed.  It's called "local" server by convention, but can be any server anywhere.
+
+**Prereqs:**
+
+- Same Python + `uv`
+- `git`, `gh`, `claude` (Claude Code)
+- One run of `scripts/bootstrap_local.sh` to fetch the service-user credentials (no AWS keys needed at runtime)
+
+<br>
+
+**One-Time Setup:**
 
 ```bash
 git clone https://github.com/<you>/RequestQueue.ai.git
@@ -64,6 +74,91 @@ make monitor                  # starts python -m local.monitor (long-running)
 ```
 
 Use `make monitor-bg` to run it in the background and tail the log. Use a `systemd`/`launchd` unit on a real server.
+
+---
+
+### AWS Account
+
+**Prereqs:**
+
+- An AWS account (any tier — see "Cost expectation" below; this app stays in the free tier at typical volumes).
+- Billing contact on file (AWS requires it even when nothing is being charged).
+- Region: use **`us-east-1`** unless you have a specific reason otherwise. It's required if you plan to use a custom domain (CloudFront ACM certs must live in `us-east-1`).
+
+<br>
+
+**One-Time Setup:**
+
+1. **Create a dedicated IAM user for deploys.** Don't use root. Console → IAM → Users → "Create user" → name it `requestqueue-deploy` (or similar). Skip console access; you only need programmatic access.
+
+2. **Attach permissions.** Pick one of:
+   - **Recommended for personal accounts:** attach the AWS-managed `AdministratorAccess` policy. SAM creates a wide variety of resources (Lambda, API Gateway, Cognito, DynamoDB, S3, CloudFront, IAM execution roles for the Lambdas), so a deploy user that can do anything is by far the simplest path.
+   - **For shared / locked-down accounts:** see "Scoped-down permissions" below for a custom policy.
+
+3. **Create an access key for that user.** User → Security credentials → "Create access key" → "Command Line Interface (CLI)" → save the Access Key ID + Secret Access Key.
+
+4. **Configure the AWS CLI on your deploy machine.**
+   ```bash
+   aws configure --profile requestqueue
+   # AWS Access Key ID:     <paste>
+   # AWS Secret Access Key: <paste>
+   # Default region name:   us-east-1
+   # Default output format: json
+   ```
+   Then in `.env`, set `REQUESTQUEUE_AWS_PROFILE=requestqueue`. The deploy and bootstrap scripts will pick it up.
+
+5. **(Optional) Custom domain.** If you set `REQUESTQUEUE_CUSTOM_DOMAIN=example.com`, you also need a single ACM certificate in `us-east-1` covering both `work.<domain>` and `api.<domain>` — easiest is a wildcard `*.<domain>`. Request it via ACM Console (in `us-east-1`), validate via DNS, and paste the cert ARN into `REQUESTQUEUE_CUSTOM_DOMAIN_CERT_ARN`. Then point your DNS at the CloudFront/API Gateway targets that show up in `.requestqueue.outputs.json` after `make publish`.
+
+<br>
+
+**Scoped-down permissions** (skip this if you're using `AdministratorAccess` on a personal account):
+
+The deploy user needs to be able to create/update/delete resources across these services. Build a custom policy with these actions; resource ARNs can be scoped to `arn:aws:*:*:*:requestqueue-*` or similar where supported.
+
+| Service | Actions |
+|---|---|
+| CloudFormation | `cloudformation:*` (SAM is built on CFN) |
+| Lambda | `lambda:Create*`, `lambda:Update*`, `lambda:Delete*`, `lambda:Get*`, `lambda:List*`, `lambda:AddPermission`, `lambda:RemovePermission`, `lambda:TagResource`, `lambda:InvokeFunction` |
+| API Gateway | `apigateway:*` |
+| DynamoDB | `dynamodb:CreateTable`, `dynamodb:UpdateTable`, `dynamodb:DeleteTable`, `dynamodb:DescribeTable`, `dynamodb:DescribeContinuousBackups`, `dynamodb:UpdateContinuousBackups`, `dynamodb:TagResource` |
+| Cognito | `cognito-idp:*` (user pool, client, domain, pre-signup trigger config; the custom resource also needs `cognito-idp:AdminCreateUser`/`AdminSetUserPassword`/`AdminGetUser`/`AdminDeleteUser` on the pool) |
+| S3 | `s3:*` on `arn:aws:s3:::requestqueue-webapp-*` and the SAM-managed artifacts bucket (typically `aws-sam-cli-managed-default-*`) |
+| CloudFront | `cloudfront:*` |
+| IAM | `iam:CreateRole`, `iam:DeleteRole`, `iam:GetRole`, `iam:PassRole`, `iam:AttachRolePolicy`, `iam:DetachRolePolicy`, `iam:PutRolePolicy`, `iam:DeleteRolePolicy`, `iam:CreateServiceLinkedRole`, `iam:TagRole` (needed because SAM creates execution roles for each Lambda) |
+| SSM Parameter Store | `ssm:GetParameter`, `ssm:GetParameters`, `ssm:PutParameter`, `ssm:DeleteParameter` on `arn:aws:ssm:*:*:parameter/requestqueue/*` |
+| Secrets Manager | `secretsmanager:CreateSecret`, `secretsmanager:UpdateSecret`, `secretsmanager:DeleteSecret`, `secretsmanager:DescribeSecret`, `secretsmanager:GetSecretValue`, `secretsmanager:TagResource` on `arn:aws:secretsmanager:*:*:secret:/requestqueue/*` |
+| CloudWatch Logs | `logs:CreateLogGroup`, `logs:DeleteLogGroup`, `logs:DescribeLogGroups`, `logs:PutRetentionPolicy`, `logs:TagResource` |
+| ACM (only if custom domain) | `acm:DescribeCertificate` on the cert ARN |
+
+After your first successful `make publish`, you can tighten further. **Ongoing operations** (whitelist edits via `whitelist_user.sh`, prompt updates via `make publish-prompts`, bootstrapping the local server) only need:
+
+- `ssm:GetParameter` + `ssm:PutParameter` on `arn:aws:ssm:*:*:parameter/requestqueue/email_whitelist`
+- `s3:PutObject` on `arn:aws:s3:::requestqueue-webapp-*/config/*`
+- `cloudfront:CreateInvalidation` on the distribution ARN
+- `cloudformation:DescribeStacks` (to fetch outputs)
+- `secretsmanager:GetSecretValue` on the service-user secret (only needed once, to bootstrap a new local server)
+
+You can leave the `requestqueue-deploy` user as-is and just rotate to a tighter user later, or have two separate users from the start (`requestqueue-deploy` for stack creation, `requestqueue-ops` for day-to-day).
+
+<br>
+
+**Cost expectation:**
+
+At low volume (a few hundred requests, 30s polling), this app costs effectively **\~\$0.50–\$1.00 / month**:
+
+| Service | Free tier | Typical use here | Cost |
+|---|---|---|---|
+| DynamoDB on-demand | n/a (pay per request) | ~thousands of read/writes/mo | < \$0.01 |
+| Lambda | 1M requests/mo + 400k GB-s | well under | \$0 |
+| API Gateway REST | 1M requests/mo for 12mo | well under | \$0 (or pennies after free tier) |
+| S3 | 5 GB + 20k GETs | tiny bundle, low traffic | < \$0.05 |
+| CloudFront | 1 TB egress for 12mo | low | \$0 |
+| Cognito | 50k MAU forever | a handful of users | \$0 |
+| **Secrets Manager** | none | 1 secret | **\$0.40** |
+| SSM Parameter Store | unlimited standard params | 1 param | \$0 |
+| CloudWatch Logs | 5 GB/mo | low | < \$0.05 |
+
+Heavy use (frequent builds, many users, verbose logging) might push this into single-digit dollars/mo.
 
 ---
 
@@ -95,7 +190,10 @@ Minimum:
 - `contents:write` (push branches)
 - `pull_requests:write` (create PRs)
 
-If `REQUESTQUEUE_GITHUB_AUTO_MERGE=true`, you also need admin rights on the repo (the token must be allowed to use `gh pr merge --admin`, which bypasses branch protection).
+If `REQUESTQUEUE_GITHUB_AUTO_MERGE=true`, you also need admin rights on the repo (the token must be allowed to use `gh pr merge --admin`, which bypasses branch protection).<br>
+This is primarily used for early dev or solo founders, where the product does not have active users that could be disrupted by a bad merge / deploy.  
+
+If you have active users on your product, it's best practice to _NOT_ enable AUTO_MERGE.
 
 ---
 
@@ -124,19 +222,19 @@ If `REQUESTQUEUE_GITHUB_AUTO_MERGE=true`, you also need admin rights on the repo
                             ▼                               └─────────────┬──────────────┘
                    ┌──────────────────┐                                   │
                    │ DynamoDB         │                                   ▼
-                   │  PK = reqid v7   │                            ┌──────────────┐
-                   │  no SK, no GSI   │                            │ GitHub repo  │
-                   └──────────────────┘                            │  requestqueue/<id>  │
-                                                                   │  branches+PRs│
-                  ┌────────────────────┐                           └──────────────┘
+                   │  PK = reqid v7   │                            ┌────────────────────┐
+                   │  no SK, no GSI   │                            │ GitHub repo        │
+                   └──────────────────┘                            │  requestqueue/<id> │
+                                                                   │  branches+PRs      │
+                  ┌────────────────────┐                           └────────────────────┘
                   │ Cognito User Pool  │
                   │  human users +     │◀── pre-signup Lambda ── SSM whitelist
                   │  service-local-mon │
                   └────────────────────┘
                   ┌────────────────────┐    ┌───────────────────┐
                   │ S3 (private/OAC)   │◀── │ CloudFront        │
-                  │  /static (bundle)  │    │  HTTPS, edge cache│
-                  │  /config/*.yaml    │    └───────────────────┘
+                  │  /index.html + JS  │    │  HTTPS, edge cache│
+                  │  /config/app.json  │    └───────────────────┘
                   └────────────────────┘
 ```
 
