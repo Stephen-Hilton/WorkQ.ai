@@ -142,32 +142,94 @@ Walk the user through the README "AWS Account / One-Time Setup" steps:
    - "No, I need to create one" → print `https://console.aws.amazon.com/` and explain they'll need to come back. Suggest they finish account creation, then re-run `/requestqueue-install` (it'll skip everything else they've already done).
    - "Report an issue: ..."
 
-2. Walk through creating the deploy IAM user. Print the URL `https://console.aws.amazon.com/iam/home#/users` and instruct them to:
-   - Click "Create user", name it `requestqueue-deploy`.
-   - Skip console access (programmatic only).
-   - Permissions: "Attach policies directly" → `AdministratorAccess`. (For locked-down accounts, point to README's scoped-down policy table.)
-   - After creation, go to **Security credentials → Create access key → "Command Line Interface (CLI)"** use case.
-   - On the success page, **click "Download .csv file"** — this saves both the Access Key ID and Secret to `~/Downloads/AccessKey-AKIA<id>.csv`. This is the cleanest path for the next step. (If they dismiss this prompt, they can still continue via the clipboard fallback below.)
-   - `AskUserQuestion`: "Did you download the .csv file?" Options: "Yes, downloaded the CSV", "No — I have the keys but not the CSV (use clipboard mode)", "Not yet — give me a minute", "Report an issue".
+2. **Determine starting point — does the user already have a key CSV?**
 
-3. Configure the AWS CLI profile using `scripts/aws_setup_config.sh`. **Keys never pass through Claude** — the script reads them from a CSV file or the system clipboard locally, calls `aws configure set` (which doesn't echo values), and prints only the non-secret `aws sts get-caller-identity` JSON to confirm.
+   Most users will need the IAM walkthrough. **Don't assume they've done it** — ask first.
 
-   **Mode A — CSV (recommended, single command):**
+   `AskUserQuestion`: "Have you already created a deploy IAM user in AWS and downloaded the access-keys CSV file?"
+   - "Yes — I have the CSV file" → skip walkthrough, jump to step 3.
+   - "No — walk me through creating the user, key, and CSV" → print the **IAM walkthrough below**, then come back to step 3.
+   - "I have access keys but no CSV file" → tell them they have two options: (a) deactivate the existing key in the AWS console and create a new one with "Download .csv file" (5 sec, cleanest), or (b) skip CSV entirely and use clipboard mode in step 3 (paste the keys from wherever they're stored). Then ask which they want.
+   - "Report an issue".
 
-   If the user has the downloaded CSV:
+   **IAM walkthrough** (only printed when the user picks "walk me through"):
 
-   > Run (replace the path with where you saved the CSV):
+   Print this verbatim:
+
+   > ## Create the deploy IAM user (5–10 minutes in the AWS console)
+   >
+   > **What we're doing:** creating a dedicated IAM user named `requestqueue-deploy` with permission to deploy this app's CloudFormation stack. This user is for *deploys only*. The local-server side of RequestQueue runs with no AWS keys at all (it authenticates as a Cognito user instead).
+   >
+   > **Why a dedicated user?** SAM creates a wide variety of resources (Lambda, API Gateway, Cognito, DynamoDB, S3, CloudFront, IAM execution roles for the Lambdas), so the simplest path is `AdministratorAccess` on a deploy-only user. Don't use root for this — root keys have no blast-radius limit and shouldn't sit on your laptop. For shared/locked-down accounts, README "Scoped-down permissions" has a custom policy that works in lieu of `AdministratorAccess`.
+   >
+   > **Steps in the AWS console:**
+   >
+   > 1. Open **https://console.aws.amazon.com/iam/home#/users** in your browser.
+   > 2. Click **Create user**.
+   > 3. **User name:** `requestqueue-deploy` (any name is fine; if you change it, that's a memo for yourself — the wizard doesn't depend on the name).
+   > 4. **DO NOT** check "Provide user access to the AWS Management Console" — programmatic access only.
+   > 5. Click **Next**.
+   > 6. **Permissions options:** select **"Attach policies directly"**.
+   > 7. In the search box type `AdministratorAccess`, check the box next to that policy.
+   > 8. Click **Next**, review, click **Create user**.
+   > 9. Click into the newly-created `requestqueue-deploy` user → **Security credentials** tab.
+   > 10. Scroll to **Access keys** → click **Create access key**.
+   > 11. **Use case:** select **"Command Line Interface (CLI)"**. Check the confirmation checkbox at the bottom. Click **Next**.
+   > 12. (Optional) **Description tag:** anything memorable, e.g. `requestqueue-deploy-cli`.
+   > 13. Click **Create access key**.
+   > 14. **CRITICAL — on the success page, click "Download .csv file".** This saves both the Access Key ID and Secret to a CSV. AWS will not show the secret again after you leave this page; if you skip the download, you'll have to deactivate the key and create a new one (no big deal, just a few extra clicks).
+   > 15. Save the CSV somewhere you'll remember. Common locations: `~/Downloads/` (default for most browsers), `~/Desktop/`, or this repo's root directory. The wizard will auto-find it in any of those locations in the next step.
+   >
+   > **Region:** this wizard assumes `us-east-1`. CloudFront ACM certs (used for custom domains, optional) MUST live in `us-east-1`, so unless you have a strong reason for another region, leave it. Region is set in `.env` as `REQUESTQUEUE_AWS_REGION`.
+
+   `AskUserQuestion`: "Done — IAM user is created and the access-keys CSV is downloaded?" Options: "Yes, CSV is downloaded", "Hit a snag — let me describe", "Report an issue".
+
+3. **Configure the AWS CLI profile** using `scripts/aws_setup_config.sh`.
+
+   **Why we do it this way (tell the user this verbatim before running):**
+
+   > Your AWS keys give full access to your AWS account, so we never want them transmitted off your machine — not to me (Claude), not to any LLM, not over any network. The wizard solves this by running a **local script** (`scripts/aws_setup_config.sh`) that reads your keys directly from the CSV file (or your system clipboard), then calls `aws configure set` to write them into `~/.aws/credentials`. The keys flow CSV-on-disk → local AWS CLI → `~/.aws/credentials` — they never appear in this chat. The only output you'll see in the conversation is the verification: your AWS account ID and IAM user ARN, returned by `aws sts get-caller-identity`. Those are not secrets.
+
+   **Step 3a — Find the CSV.**
+
+   Run a `find` over the common save locations to discover candidate CSV files:
+
+   ```bash
+   find ~/Downloads ~/Desktop "$PWD" -maxdepth 2 -type f \( -iname '*accessKey*.csv' -o -iname '*credentials*.csv' \) 2>/dev/null
+   ```
+
+   Then branch based on the count:
+
+   - **0 matches:** `AskUserQuestion`: "I couldn't find a CSV in ~/Downloads, ~/Desktop, or the repo root. Type the path manually?" Options: "I'll type the path next", "Use clipboard mode instead", "Re-run the IAM walkthrough", "Report an issue". On "type the path", accept their next message as the path. Tell them path conventions: absolute paths start with `/` (e.g. `/Users/you/Downloads/foo.csv`), relative paths start with `./` and are relative to the **repo root** (e.g. `./requestqueue-deploy_accessKeys.csv`).
+
+   - **1 match:** present it as the suggested option in `AskUserQuestion`. Options: "Use this file: `<path>`" (recommended), "Use a different file (I'll type the path)", "Switch to clipboard mode", "Report an issue".
+
+   - **2+ matches:** `AskUserQuestion` with up to 3 of the matches as separate options (most-recent first by mtime), plus "None of these — I'll type the path", "Switch to clipboard mode", "Report an issue".
+
+   Validate the chosen path with `[ -f "$path" ]` before proceeding. If the file doesn't exist, re-ask.
+
+   **Step 3b — Run the script.**
+
+   Print the exact command for the user to run via `!`:
+
    > ```
-   > ! ./scripts/aws_setup_config.sh --csv ~/Downloads/AccessKey-<id>.csv requestqueue us-east-1
+   > ! ./scripts/aws_setup_config.sh --csv <chosen path> requestqueue us-east-1
    > ```
+   >
+   > **Path conventions:**
+   > - Absolute (`/Users/you/Downloads/foo.csv`) — works from anywhere.
+   > - Relative (`./foo.csv`) — relative to the **repo root** (where you cloned this repo). The wizard always runs commands from the repo root.
+   > - Tilde (`~/Downloads/foo.csv`) — expanded by your shell to your home dir.
+   >
+   > **Args:** `requestqueue` is the AWS profile name (matches `REQUESTQUEUE_AWS_PROFILE` in `.env`). `us-east-1` is the region (matches `REQUESTQUEUE_AWS_REGION`). Both have these as defaults if you omit them.
 
-   On success the script prints `aws sts get-caller-identity` JSON (account ID + ARN) and a "✓ Profile … is configured" line. After verifying, suggest the user `rm` the CSV (the script's last line shows the exact command).
+   `AskUserQuestion`: "Did the script finish with '✓ Profile requestqueue is configured and authenticates successfully'?" Options: "Yes, configured", "Failed — let's debug (paste the error)", "Try clipboard mode instead", "Report an issue".
 
-   **Mode B — Clipboard (fallback, two commands):**
+   On success, point out the script's last line — it prints a `rm "<path>"` suggestion to securely delete the CSV. Strongly recommend running it: the keys are now in `~/.aws/credentials` and the CSV is no longer needed.
 
-   If they don't have the CSV (e.g. dismissed the download prompt):
+   **Step 3c — Clipboard mode (alternative path, if user chose it).**
 
-   > Copy the **Access Key ID** to your clipboard, then run:
+   > Copy the **Access Key ID** to your clipboard (from your password manager, the AWS console "Show" button, or wherever you have it), then run:
    > ```
    > ! ./scripts/aws_setup_config.sh --clip-id requestqueue
    > ```
@@ -175,12 +237,12 @@ Walk the user through the README "AWS Account / One-Time Setup" steps:
    > ```
    > ! ./scripts/aws_setup_config.sh --clip-secret requestqueue us-east-1
    > ```
+   >
+   > **Why this is also safe:** the script reads from `pbpaste` (macOS) / `wl-paste` / `xclip` (Linux) *inside the `!` subprocess*, after Claude has already captured the bash-input as literal `--clip-id` / `--clip-secret` arg text. The clipboard contents never enter the chat. The script also validates format (Access Key ID must be 16-128 uppercase alphanumeric; Secret must be ≥20 chars) before calling `aws configure set`.
 
-   Shell expansion of `pbpaste` / `wl-paste` / `xclip` happens *inside* the script after Claude has already captured the bash-input as literal `--clip-id` / `--clip-secret` args, so the secret value never appears in the conversation. The script validates format (Access Key ID must be `[A-Z0-9]{16,128}`; Secret must be ≥20 chars) before calling `aws configure set`.
+   `AskUserQuestion` after both clipboard commands: "Did the second command print '✓ Profile … is configured'?" Options: "Yes", "Failed — let's debug", "Switch back to CSV mode", "Report an issue".
 
-   `AskUserQuestion` after either mode: "Did the script print '✓ Profile … is configured and authenticates successfully'?" Options: "Yes, configured", "Failed — let's debug", "I want to try the other mode (CSV ↔ clipboard)", "Report an issue".
-
-   **Last-resort fallback (separate terminal):** if both modes fail (clipboard tool missing on Linux, CSV parsing error, etc.), instruct the user to open a separate terminal and run `aws configure --profile requestqueue` interactively. Verify back here with `aws sts get-caller-identity --profile requestqueue`.
+   **Last-resort fallback (separate terminal):** if neither mode works (clipboard tool missing on a Linux system, CSV parsing error on an unusual format, etc.), instruct the user to open a separate terminal and run `aws configure --profile requestqueue` interactively. Verify back here with `aws sts get-caller-identity --profile requestqueue`.
 
 4. Write/update `REQUESTQUEUE_AWS_PROFILE` and `REQUESTQUEUE_AWS_REGION` in `.env` (use the same .env-merge pattern that `refresh_creds.sh` uses — strip-then-append, never overwrite the whole file).
 
