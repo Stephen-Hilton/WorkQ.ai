@@ -19,6 +19,8 @@ I use this for all of my AI projects, usually by merging it into my apps' admin 
 
 ### Dev / Deploy Machine (laptop)
 
+> **On Windows? Use WSL2.** All scripts and `make` targets in this repo assume a Unix shell. The simplest path is [Windows Subsystem for Linux 2](https://learn.microsoft.com/en-us/windows/wsl/install) — open PowerShell and run `wsl --install`, then do everything below from inside the Ubuntu (or other distro) terminal it sets up. Native PowerShell / cmd won't run any of the bash scripts. Git Bash (bundled with Git for Windows) handles ~80% of operations but needs `choco install make jq` and has rough edges with file permissions and path translation. WSL2 has NONE of these issues; the rest of this README is identical for Windows-on-WSL users and Linux/macOS users.
+
 **Prereqs:**
 
 - Python 3.12+, [`uv`](https://docs.astral.sh/uv/) (`brew install uv`)
