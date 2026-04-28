@@ -1,0 +1,35 @@
+[project]
+name = "workq-apis"
+version = "0.1.0"
+description = "WorkQ.ai — API Gateway Lambda handlers (DDB CRUD + Cognito pre-signup)"
+requires-python = ">=3.12"
+dependencies = [
+    "boto3>=1.34.0",
+    "uuid6>=2024.7.10",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "moto[dynamodb,ssm,cognitoidp]>=5.0.0",
+    "ruff>=0.5.0",
+    "mypy>=1.10.0",
+    "boto3-stubs[dynamodb,ssm,cognito-idp]>=1.34.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "N", "W"]
+ignore = ["E501"]  # line length handled by formatter
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
