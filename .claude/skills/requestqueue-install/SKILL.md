@@ -32,10 +32,15 @@ The canonical README is at `README.md`; this wizard is its executable form. When
 
 7. **Interactive commands cannot be run from this side.** Claude Code's `Bash` tool does not connect user stdin to spawned processes, and the user-typed `! <cmd>` prefix has the same limitation — both will hit `EOF when reading a line` (or block forever) on any command that reads from a TTY. This includes `aws configure`, `aws configure sso`, `gh auth login`, `sam deploy --guided`, and any other command that prompts the user mid-run. Never instruct the user to use `! aws configure` — it does not work.
 
-   **Two ways around this — pick the lighter one first:**
+   **When you DO and DON'T need `!` mode for secrets:**
 
-   - **(a) Helper script that resolves secrets locally.** Write a script that takes the secret from a *local source* the user already has — a downloaded credentials CSV, the system clipboard via `$(pbpaste)` / `$(wl-paste)` / `$(xclip)`, or a file the user prepared. Shell expansion happens *inside the `!` subprocess after Claude has captured the bash-input as literal text*, so the secret value never appears in the transcript. The script must use commands that don't echo the secret (e.g. `aws configure set` is silent; raw `cat $secret_file` would leak). Output should be limited to non-secret verification (`aws sts get-caller-identity` JSON is fine — account/ARN are not secrets). See `scripts/aws_setup_config.sh` for the canonical pattern (CSV mode + clipboard mode + format validation). This is the **preferred** path because it runs inline in the wizard with no context-switching.
-   - **(b) Separate terminal as last resort.** If no script-driven path is feasible (e.g. the upstream CLI's only auth flow is browser-redirect-and-paste-back-into-stdin), instruct the user to open a separate terminal window, `cd` into the repo, run the interactive command there, then return and confirm via `AskUserQuestion`. Verify state from this side with a non-interactive read-only command (`aws sts get-caller-identity`, `gh auth status`, etc.).
+   The point of `!` is to keep secret *text* out of the conversation transcript when that text would otherwise appear in the bash-input or bash-stdout. Three cases:
+
+   - **You DON'T need `!` — Claude runs it via `Bash`.** Whenever the secret is *not in the command-line text* and the script *doesn't echo* it. Example: `./scripts/aws_setup_config.sh --csv ./foo.csv` reads keys from a file and calls silent `aws configure set`. The Bash tool runs the same script in the same local shell; the keys never enter Claude's context either way. Same for clipboard mode — `pbpaste` resolves locally inside the script. **This is the default**: prefer running the script via Claude's `Bash` tool. Don't make the user type `!` commands they don't need to type.
+   - **You DO need `!` — user runs it.** Whenever the secret is in the command-line text itself (e.g. `aws configure set aws_access_key_id AKIA<real key>` typed inline by the user, or `$(pbpaste)` used directly in the user-typed command and the user wants the literal substitution to happen client-side). The `!` form preserves the literal pre-expansion text in the transcript while shell expansion happens locally.
+   - **Neither works — separate terminal as last resort.** If the upstream CLI's only auth flow is interactive-prompt-on-stdin (e.g. `aws configure`, `gh auth login`'s "paste this code in browser then back into stdin" flow, `sam deploy --guided`), instruct the user to open a separate terminal window, `cd` into the repo, run the interactive command there, then return and confirm via `AskUserQuestion`. Verify state from this side with a non-interactive read-only command (`aws sts get-caller-identity`, `gh auth status`, etc.).
+
+   See `scripts/aws_setup_config.sh` for the canonical "secret stays out of the command line" pattern (CSV mode + clipboard mode + format validation + non-secret-only output).
 
 ## STANDARD ASKUSERQUESTION PATTERN
 
@@ -188,7 +193,7 @@ Walk the user through the README "AWS Account / One-Time Setup" steps:
 
    **Why we do it this way (tell the user this verbatim before running):**
 
-   > Your AWS keys give full access to your AWS account, so we never want them transmitted off your machine — not to me (Claude), not to any LLM, not over any network. The wizard solves this by running a **local script** (`scripts/aws_setup_config.sh`) that reads your keys directly from the CSV file (or your system clipboard), then calls `aws configure set` to write them into `~/.aws/credentials`. The keys flow CSV-on-disk → local AWS CLI → `~/.aws/credentials` — they never appear in this chat. The only output you'll see in the conversation is the verification: your AWS account ID and IAM user ARN, returned by `aws sts get-caller-identity`. Those are not secrets.
+   > Your AWS keys give full access to your AWS account, so we never want them transmitted off your machine — not to me (Claude), not to any LLM, not over any network. The wizard solves this by running a **local script** (`scripts/aws_setup_config.sh`) that reads your keys directly from the CSV file (or your system clipboard), then calls `aws configure set` to write them into `~/.aws/credentials`. The keys flow CSV-on-disk → local AWS CLI → `~/.aws/credentials` — they never appear in this chat. I'll run the script for you using my Bash tool, which executes locally on your machine (no different from running it yourself). The only output you'll see in the conversation is the verification: your AWS account ID and IAM user ARN, returned by `aws sts get-caller-identity`. Those are not secrets.
 
    **Step 3a — Find the CSV.**
 
@@ -208,39 +213,43 @@ Walk the user through the README "AWS Account / One-Time Setup" steps:
 
    Validate the chosen path with `[ -f "$path" ]` before proceeding. If the file doesn't exist, re-ask.
 
-   **Step 3b — Run the script.**
+   **Step 3b — Run the script (Claude runs it via `Bash`, not the user).**
 
-   Print the exact command for the user to run via `!`:
+   The script reads keys from a local file, calls silent `aws configure set`, and outputs only `aws sts get-caller-identity` JSON (account + ARN — non-secret). Since the secret value is never in the command-line text, **Claude runs this directly via the `Bash` tool** — don't make the user type a `!` invocation. The Bash tool runs in the user's local shell, so the keys stay on the user's machine the same way they would for `!`.
 
-   > ```
-   > ! ./scripts/aws_setup_config.sh --csv <chosen path> requestqueue us-east-1
-   > ```
-   >
-   > **Path conventions:**
-   > - Absolute (`/Users/you/Downloads/foo.csv`) — works from anywhere.
-   > - Relative (`./foo.csv`) — relative to the **repo root** (where you cloned this repo). The wizard always runs commands from the repo root.
-   > - Tilde (`~/Downloads/foo.csv`) — expanded by your shell to your home dir.
-   >
-   > **Args:** `requestqueue` is the AWS profile name (matches `REQUESTQUEUE_AWS_PROFILE` in `.env`). `us-east-1` is the region (matches `REQUESTQUEUE_AWS_REGION`). Both have these as defaults if you omit them.
+   Tell the user briefly what's about to happen (e.g. "Running `./scripts/aws_setup_config.sh --csv <path> requestqueue us-east-1` now — output will be the `aws sts get-caller-identity` JSON for verification"), then call:
 
-   `AskUserQuestion`: "Did the script finish with '✓ Profile requestqueue is configured and authenticates successfully'?" Options: "Yes, configured", "Failed — let's debug (paste the error)", "Try clipboard mode instead", "Report an issue".
+   ```
+   ./scripts/aws_setup_config.sh --csv <chosen path> requestqueue us-east-1
+   ```
 
-   On success, point out the script's last line — it prints a `rm "<path>"` suggestion to securely delete the CSV. Strongly recommend running it: the keys are now in `~/.aws/credentials` and the CSV is no longer needed.
+   **Args:** `requestqueue` is the AWS profile name (matches `REQUESTQUEUE_AWS_PROFILE` in `.env`). `us-east-1` is the region (matches `REQUESTQUEUE_AWS_REGION`). Both have these as defaults if omitted.
+
+   On success the script prints `aws sts get-caller-identity` JSON + a `✓ Profile … is configured and authenticates successfully` line. Confirm to the user the configuration succeeded, name the AWS account ID and IAM-user ARN you saw, then `AskUserQuestion`: "Delete the CSV now? (Recommended — keys are in `~/.aws/credentials`, the CSV is no longer needed.)" Options: "Yes, delete it", "Keep it for now", "Report an issue". On "yes", run `rm <path>` via Bash.
+
+   On failure, surface the error to the user and `AskUserQuestion`: "Debug, retry, switch to clipboard mode, or report an issue?"
 
    **Step 3c — Clipboard mode (alternative path, if user chose it).**
 
-   > Copy the **Access Key ID** to your clipboard (from your password manager, the AWS console "Show" button, or wherever you have it), then run:
-   > ```
-   > ! ./scripts/aws_setup_config.sh --clip-id requestqueue
-   > ```
-   > Then copy the **Secret Access Key** to your clipboard, then run:
-   > ```
-   > ! ./scripts/aws_setup_config.sh --clip-secret requestqueue us-east-1
-   > ```
-   >
-   > **Why this is also safe:** the script reads from `pbpaste` (macOS) / `wl-paste` / `xclip` (Linux) *inside the `!` subprocess*, after Claude has already captured the bash-input as literal `--clip-id` / `--clip-secret` arg text. The clipboard contents never enter the chat. The script also validates format (Access Key ID must be 16-128 uppercase alphanumeric; Secret must be ≥20 chars) before calling `aws configure set`.
+   Same principle: secret is read by the script from the local clipboard, never appears in the command line, never appears in script output. Claude runs both commands via `Bash` — the user just confirms the clipboard state between them.
 
-   `AskUserQuestion` after both clipboard commands: "Did the second command print '✓ Profile … is configured'?" Options: "Yes", "Failed — let's debug", "Switch back to CSV mode", "Report an issue".
+   First, `AskUserQuestion`: "Copy your **Access Key ID** to clipboard and confirm when ready" Options: "Ready — clipboard has the Access Key ID", "Switch back to CSV mode", "Report an issue".
+
+   On confirm, Claude runs via `Bash`:
+   ```
+   ./scripts/aws_setup_config.sh --clip-id requestqueue
+   ```
+
+   The script reads the clipboard via `pbpaste` (macOS) / `wl-paste` / `xclip` (Linux), validates format (Access Key ID must be 16-128 uppercase alphanumeric), and calls silent `aws configure set`. Output to Claude is just a length-only confirmation (no key value).
+
+   Then `AskUserQuestion`: "Now copy your **Secret Access Key** to clipboard and confirm when ready" Options: "Ready — clipboard has the Secret", "Cancel and try CSV mode", "Report an issue".
+
+   On confirm, Claude runs via `Bash`:
+   ```
+   ./scripts/aws_setup_config.sh --clip-secret requestqueue us-east-1
+   ```
+
+   The script validates the secret format (≥20 chars), calls silent `aws configure set` for the secret + region + output, then runs `aws sts get-caller-identity` to verify. Output to Claude is the JSON + success line. The clipboard contents never appear in the conversation because (a) the script doesn't echo them and (b) `pbpaste` is invoked inside the script, not in the user-typed command.
 
    **Last-resort fallback (separate terminal):** if neither mode works (clipboard tool missing on a Linux system, CSV parsing error on an unusual format, etc.), instruct the user to open a separate terminal and run `aws configure --profile requestqueue` interactively. Verify back here with `aws sts get-caller-identity --profile requestqueue`.
 
@@ -482,3 +491,7 @@ Tell the user the wizard ran cleanly and they're done.
 - Don't echo full secret values back to the user except where they explicitly need to copy them (e.g., service-user password to a different machine). Truncate access keys / tokens to first 4 + last 4 chars when echoing back.
 - After "Report an issue" → fix → push, end your turn with a clear "Run `/requestqueue-install` again to restart" — do **not** automatically re-invoke the skill.
 - The `Report an issue` flow exists specifically to discover bugs in this wizard, scripts, README, and SAM template. **Take user reports seriously.** A "this is confusing" report is just as actionable as a "this command failed" report — clarify the docs, don't just acknowledge.
+
+- **Keep the wizard flowing — don't pause between phases.** When a phase or step finishes successfully, briefly tell the user what just finished and what's next, then **continue immediately** to the next step. Don't `AskUserQuestion` for "shall I continue?" or "did that work?" when the answer is already visible (exit code 0 + expected success line in output). Only pause for: (a) genuine user input that's needed to proceed (an answer, a credential paste, a path, a yes/no for an irreversible action like `rm`), (b) the user picking "Report an issue", (c) actual failure states. The wizard has 9 phases and many sub-steps; if you stop after each one to ask permission, the user loses track of progress and may think the install finished prematurely. Trust the idempotency — phases detect their own state, so a re-run from any point is safe; that's why you don't need permission to keep going.
+
+- **Always tell the user where they are in the overall progress.** When transitioning between phases (or after a long step like Phase 7 deploy), use a concise one-line indicator: "✓ Phase 2 done (AWS profile configured) → Phase 3: GitHub auth (next)". This anchors the user against the 9-phase outline so they know how much remains.
