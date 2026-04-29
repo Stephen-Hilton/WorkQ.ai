@@ -255,10 +255,71 @@ Walk the user through the README "AWS Account / One-Time Setup" steps:
 
 4. Write/update `REQUESTQUEUE_AWS_PROFILE` and `REQUESTQUEUE_AWS_REGION` in `.env` (use the same .env-merge pattern that `refresh_creds.sh` uses — strip-then-append, never overwrite the whole file).
 
-5. `AskUserQuestion`: "Optional: do you want to set up a custom domain (`work.<yourdomain>` + `api.<yourdomain>`)?" Options:
-   - "Skip for now (use AWS-default URLs)" → don't set CUSTOM_DOMAIN.
-   - "Yes, walk me through it" → ask for domain, ask for ACM cert ARN (with instructions to provision it in `us-east-1` covering both subdomains; recommend wildcard). Write to .env.
-   - "Report an issue: ..."
+5. **Optional custom domain — Claude provisions the ACM cert automatically.**
+
+   `AskUserQuestion`: "Use AWS-default URLs (CloudFront / API Gateway hostnames) or set up a custom domain (`work.<yours>` + `api.<yours>`)?" Options:
+   - "Skip — use AWS-default URLs (Recommended for first install)" → no `.env` changes for `CUSTOM_DOMAIN*`; move on.
+   - "Set up custom domain" → continue with steps a–h below.
+   - "Report an issue".
+
+   The user has `AdministratorAccess` on the deploy IAM profile, so **Claude provisions the ACM certificate via the AWS CLI** — don't make the user navigate to ACM in the console. The user's only manual step (and only if their DNS isn't in Route 53) is adding a CNAME record in their DNS provider's UI.
+
+   **a. Get the base domain.** `AskUserQuestion`: "What's the base domain? (no `https://`, no subdomain — just the apex like `paydaay.com`)" Provide a couple of plausible suggestions if you have signal (e.g. inferred from the user's email domain), plus "Report an issue". The user picks auto-Other to type their domain inline.
+
+   **b. Detect Route 53 hosting.** Run:
+      ```
+      aws route53 list-hosted-zones --profile requestqueue \
+        --query "HostedZones[?Name=='<domain>.'].Id" --output text
+      ```
+      If a zone ID is returned → Claude can fully automate DNS validation. If empty → the user manages DNS elsewhere and will need to add validation CNAMEs manually.
+
+   **c. Request the wildcard certificate.**
+      ```
+      aws acm request-certificate \
+        --domain-name "*.<domain>" \
+        --subject-alternative-names "<domain>" \
+        --validation-method DNS \
+        --region us-east-1 \
+        --profile requestqueue \
+        --tags Key=Name,Value=requestqueue-<domain>
+      ```
+      Capture the returned `CertificateArn`.
+
+   **d. Fetch the validation CNAMEs.** ACM populates these asynchronously. Poll with a brief delay:
+      ```
+      sleep 5
+      aws acm describe-certificate --certificate-arn <arn> \
+        --region us-east-1 --profile requestqueue \
+        --query 'Certificate.DomainValidationOptions[*].ResourceRecord' --output json
+      ```
+      You'll get one or more `{Name, Type, Value}` records. Retry every 5s up to 60s if the field is empty.
+
+   **e. Validate.**
+      - **If Route 53 hosted zone exists:** write a `change-batch.json` with `UPSERT` actions for each validation CNAME and submit:
+        ```
+        aws route53 change-resource-record-sets \
+          --hosted-zone-id <zone-id> \
+          --change-batch file:///tmp/r53-validation.json \
+          --profile requestqueue
+        ```
+        Tell the user: "Added validation CNAME(s) to Route 53 zone `<zone-id>`. ACM typically validates within 1–5 minutes."
+      - **If no Route 53 zone:** print the CNAME records (Name + Value) clearly. `AskUserQuestion`: "Add the CNAME(s) above to your DNS provider, then confirm — done?" Options: "Done — added the CNAMEs", "Report an issue".
+
+   **f. Wait for `ISSUED`.** Poll status every 15s, surfacing a one-line update to the user every ~60s:
+      ```
+      aws acm describe-certificate --certificate-arn <arn> \
+        --region us-east-1 --profile requestqueue \
+        --query 'Certificate.Status' --output text
+      ```
+      Until status is `ISSUED` (typical: 1–5 min Route 53 / 5–30 min third-party DNS). On `FAILED`, surface the reason from `FailureReason` and `AskUserQuestion` retry/skip/report.
+
+   **g. Write to `.env`** (idempotent strip-then-append):
+      ```
+      REQUESTQUEUE_CUSTOM_DOMAIN=<domain>
+      REQUESTQUEUE_CUSTOM_DOMAIN_CERT_ARN=<arn>
+      ```
+
+   **h. Heads-up to user:** "Custom domain `<domain>` is provisioned. After Phase 7 deploy, you'll need DNS records for `work.<domain>` (CloudFront) and `api.<domain>` (API Gateway) — these come from `.requestqueue.outputs.json`. If you're in Route 53, I'll add them automatically post-deploy. Otherwise you'll add them manually."
 
 ---
 
@@ -293,10 +354,15 @@ Walk the user through the README "AWS Account / One-Time Setup" steps:
 
 # Phase 4 — Walk through `.env`
 
-Read existing `.env`. For each variable below, do the following dance:
+Read existing `.env`. For each variable below, do the following dance — **one variable at a time**, JIT. Don't bundle multiple variables into one `AskUserQuestion`; each gets its own ask, the user answers, you write to `.env`, then move to the next.
 
-- If already set with a non-empty value, `AskUserQuestion`: "`<VAR>` is set to `<value>`. Keep this?" Options: "Keep", "Change it", "Report an issue".
-- If empty or unset, `AskUserQuestion` for the value with the default pre-suggested.
+For each variable:
+
+- **Detect `.env.example` placeholders** as if unset. Specifically: `@example.com` for `EMAIL_WHITELIST`, `https://github.com/yourorg/yourrepo.git` for `GITHUB_REPO_URL`, `your-domain.com` for `CUSTOM_DOMAIN`, etc. Treat these the same as missing values — don't ask the user to "keep" a placeholder.
+- **If already set with a real (non-placeholder) value**, `AskUserQuestion`: "`<VAR>` is set to `<value>`. Keep this?" Options: "Keep", "Change it", "Report an issue". (Skip the ask entirely for technical defaults the user is unlikely to care about — see "Don't ask about technical defaults" below.)
+- **If empty, unset, or placeholder**, `AskUserQuestion` for the value with concrete suggestions. Use 2–3 specific options (e.g. for `EMAIL_WHITELIST`: "Use my email: dev@paydaay.com", "Use @paydaay.com domain wildcard", "Report an issue") + the framework's auto-`Other`. The user picks auto-Other to type their own value inline; the typed string becomes the answer.
+
+**Never include "Other" as one of your own options.** The framework auto-adds it for free-text typing. Adding your own "Other" defeats this — it'll be treated as a fixed label and the user can't type a value.
 
 Variables to walk (in this order — match the README's importance ordering):
 
@@ -495,3 +561,9 @@ Tell the user the wizard ran cleanly and they're done.
 - **Keep the wizard flowing — don't pause between phases.** When a phase or step finishes successfully, briefly tell the user what just finished and what's next, then **continue immediately** to the next step. Don't `AskUserQuestion` for "shall I continue?" or "did that work?" when the answer is already visible (exit code 0 + expected success line in output). Only pause for: (a) genuine user input that's needed to proceed (an answer, a credential paste, a path, a yes/no for an irreversible action like `rm`), (b) the user picking "Report an issue", (c) actual failure states. The wizard has 9 phases and many sub-steps; if you stop after each one to ask permission, the user loses track of progress and may think the install finished prematurely. Trust the idempotency — phases detect their own state, so a re-run from any point is safe; that's why you don't need permission to keep going.
 
 - **Always tell the user where they are in the overall progress.** When transitioning between phases (or after a long step like Phase 7 deploy), use a concise one-line indicator: "✓ Phase 2 done (AWS profile configured) → Phase 3: GitHub auth (next)". This anchors the user against the 9-phase outline so they know how much remains.
+
+- **`AskUserQuestion` auto-`Other`: never add your own "Other" option.** The framework automatically adds an "Other" choice that lets the user type a free-text answer inline; the typed string becomes the answer. If you add your own option labeled "Other (I'll type it)" or similar, the framework treats it as a fixed label — the user picks it, you get the *label* back as the answer, and they have no way to type their actual value. Always provide 1–3 concrete suggested values + "Report an issue" as your options, and trust the framework to add Other for free-text. Use this for any field where the user might want to type a custom value: emails, domains, URLs, paths, timezones, etc.
+
+- **JIT, one question at a time — don't bundle.** Each free-text value gets its own `AskUserQuestion` at the moment we need it. Capture the answer, act on it (write to `.env`, run a command, request a cert), then ask the next question. **Never** ask the user to "type these N values in your next message as a multi-line block" — that's the wizard regressing into a printed README. The whole point of the wizard's conversational shape is that each answer can immediately drive the next prompt (e.g. user types domain → Claude detects Route 53 → next question is automatically tailored based on what was found). Bundling collapses that loop into a static form.
+
+- **Use the AWS access you have.** Once Phase 2 is done, Claude has AdministratorAccess on the deploy IAM profile. Wherever a wizard step would otherwise require the user to navigate to the AWS console, do it via `aws` CLI instead. Examples: provisioning ACM certs (Phase 2 step 5), adding Route 53 validation/routing records, looking up CloudFront distribution IDs, fetching CloudFormation outputs. Only fall back to "click around the console" when there's no programmatic equivalent (e.g. AWS account creation itself, root-user MFA). The user opted into the wizard precisely so they don't have to do AWS console clicking they don't need to do.
