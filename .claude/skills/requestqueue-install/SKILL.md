@@ -273,12 +273,43 @@ Walk the user through the README "AWS Account / One-Time Setup" steps:
 
    Confirm the parse back to the user in one line ("Parsed: CUSTOM_DOMAIN=hilton.zone, WEBAPP_SUBDOMAIN=workq, API_SUBDOMAIN=api.workq → webapp at workq.hilton.zone, API at api.workq.hilton.zone — correct?") and only proceed if it matches.
 
-   **b. Detect Route 53 hosting.** Run:
+   **b. Detect Route 53 state.** Route 53 has TWO independent services — query both, since a registered domain does NOT automatically have a hosted zone:
+
+      ```bash
+      # Hosted zone (DNS records). Global service.
+      ZONE_ID=$(aws route53 list-hosted-zones --profile requestqueue \
+        --query "HostedZones[?Name=='<base>.'].Id" --output text)
+
+      # Registered domain (Registrar). Lives only in us-east-1.
+      REGISTERED=$(aws route53domains list-domains --profile requestqueue \
+        --region us-east-1 \
+        --query "Domains[?DomainName=='<base>'].DomainName" --output text)
       ```
-      aws route53 list-hosted-zones --profile requestqueue \
-        --query "HostedZones[?Name=='<domain>.'].Id" --output text
-      ```
-      If a zone ID is returned → Claude can fully automate DNS validation. If empty → the user manages DNS elsewhere and will need to add validation CNAMEs manually.
+
+      Three cases:
+
+      - **Hosted zone exists** (`ZONE_ID` non-empty) → Claude can fully automate DNS validation by UPSERTing CNAMEs into the existing zone (step e). Best case.
+
+      - **Registered but no hosted zone** (`ZONE_ID` empty, `REGISTERED` non-empty) → very common gotcha when a user transfers a domain into Route 53: the registrar holds the registration but no DNS hosting is set up. **Offer to create a hosted zone.** `AskUserQuestion`: "`<base>` is registered in your Route 53 account but has no hosted zone. Create a hosted zone now? I'll also update the domain's nameservers to point at it (so DNS resolves through Route 53), which lets me automate everything else." Options: "Yes, create the hosted zone (Recommended)", "No — I manage DNS elsewhere; I'll add validation CNAMEs manually", "Report an issue".
+
+         On "Yes":
+         ```bash
+         # Create the hosted zone
+         aws route53 create-hosted-zone \
+           --name "<base>" \
+           --caller-reference "requestqueue-install-$(date +%s)" \
+           --profile requestqueue
+         # Capture HostedZone.Id and DelegationSet.NameServers (4 of them)
+
+         # Point the registered domain at the new zone's NS records
+         aws route53domains update-domain-nameservers \
+           --domain-name "<base>" \
+           --nameservers Name=ns-XXX.awsdns-XX.com Name=... Name=... Name=... \
+           --region us-east-1 --profile requestqueue
+         ```
+         Tell the user: "Created hosted zone `<id>` and pointed `<base>`'s registrar nameservers at it. NS propagation typically completes in 1–60 minutes — ACM validation will work once propagation reaches the resolvers ACM uses (usually within 5 min). Continuing." Then proceed as if `ZONE_ID` was non-empty.
+
+      - **Not registered with us at all** (`ZONE_ID` empty, `REGISTERED` empty) → the user manages DNS at a third-party provider (Cloudflare, Namecheap, GoDaddy, etc.). Surface validation CNAMEs after the cert request and ask the user to add them manually (step e fallback path).
 
    **c. Request the certificate.** Use specific names for the webapp + API hosts (not a wildcard) — wildcards in ACM cover only one DNS label, so multi-label subdomains like `api.workq.hilton.zone` need explicit SANs:
       ```
