@@ -34,7 +34,7 @@ I use this for all of my AI projects, usually by merging it into my apps' admin 
 - [GitHub CLI](https://cli.github.com/) (`brew install gh`)
 - `jq` (`brew install jq`) — used by the deploy + whitelist scripts
 - An AWS account
-- A GitHub repo you want claude to operate on (and a fine-grained PAT — see below)
+- A GitHub repo you want claude to operate on. On the machine that will run `make monitor`, EITHER `gh auth login` (recommended for personal / dev use; ambient keyring auth) OR a fine-grained PAT in `REQUESTQUEUE_GITHUB_TOKEN` (recommended for headless / cross-machine deploys) — see below.
 - *Optional:* a custom domain + an ACM certificate in `us-east-1` covering both the webapp and API hostnames. Default layout is `work.<domain>` + `api.<domain>` (a wildcard `*.<domain>` covers both); subdomain prefixes are configurable via `REQUESTQUEUE_WEBAPP_SUBDOMAIN` and `REQUESTQUEUE_API_SUBDOMAIN` for non-standard layouts (e.g. `workq.<domain>` + `api.workq.<domain>`).
 
 <br>
@@ -187,7 +187,7 @@ All env vars are prefixed `REQUESTQUEUE_`. See `.env.example` for the canonical 
 | `REQUESTQUEUE_EMAIL_WHITELIST` | deploy (seed) | Comma-separated emails or `@domain` wildcards. Seeds SSM on first deploy. |
 | `REQUESTQUEUE_GITHUB_REPO_URL` | local | Repo claude will operate on. |
 | `REQUESTQUEUE_GITHUB_BRANCH` | local | Default base branch. Default `main`. |
-| `REQUESTQUEUE_GITHUB_TOKEN` | local | Fine-grained PAT — see scopes below. |
+| `REQUESTQUEUE_GITHUB_TOKEN` | local | **Optional** — fine-grained PAT for headless local-server setups. Leave empty if the local-server machine has already run `gh auth login` (its keyring auth is inherited by git/gh subprocesses). See scopes below if you do set it. |
 | `REQUESTQUEUE_GITHUB_AUTO_MERGE` | local | `false` (default) or `true`. Auto-merges every PR. |
 | `REQUESTQUEUE_GITHUB_AUTO_MERGE_METHOD` | local | `squash` (default) / `merge` / `rebase`. |
 | `REQUESTQUEUE_POLLING_SECONDS` | local | Monitor poll interval. Default `30`. |

@@ -10,7 +10,16 @@ Per-build flow:
      - If no commits: just clean up the worktree.
   5. `git worktree remove --force` regardless.
 
-Uses `gh` for PR creation (auth via `REQUESTQUEUE_GITHUB_TOKEN` env var).
+Uses `gh` for PR creation. Auth resolves in this order:
+  1. If `REQUESTQUEUE_GITHUB_TOKEN` is set in `.env`, it's plumbed into the
+     `GITHUB_TOKEN` / `GH_TOKEN` env vars for git/gh subprocesses (overriding
+     any keyring auth). Use this for headless / cross-machine local-server
+     setups where `gh auth login` isn't an option.
+  2. If `REQUESTQUEUE_GITHUB_TOKEN` is unset/empty, git/gh inherit the
+     parent environment unmodified — meaning gh's keyring auth from
+     `gh auth login` (if present) takes effect. This is the default for
+     personal/dev setups where the user has already run `gh auth login` on
+     the machine running `make monitor`.
 """
 
 from __future__ import annotations
@@ -126,7 +135,7 @@ def push_branch(*, worktree_dir: Path, branch: str, token: str) -> None:
     _run(
         ["git", "push", "-u", "origin", branch],
         cwd=worktree_dir,
-        env_extra={"GITHUB_TOKEN": token, "GH_TOKEN": token},
+        env_extra={"GITHUB_TOKEN": token, "GH_TOKEN": token} if token else None,
     )
 
 
@@ -143,7 +152,7 @@ def create_pr(
     url = _run(
         ["gh", "pr", "create", "--base", base_branch, "--head", branch, "--title", title, "--body", body],
         cwd=worktree_dir,
-        env_extra={"GITHUB_TOKEN": token, "GH_TOKEN": token},
+        env_extra={"GITHUB_TOKEN": token, "GH_TOKEN": token} if token else None,
     )
     # `gh pr create` returns the PR URL on stdout. Parse the number off the end.
     number = _parse_pr_number(url)
@@ -162,5 +171,5 @@ def auto_merge_pr(*, worktree_dir: Path, pr_number: int, method: str, token: str
     _run(
         ["gh", "pr", "merge", str(pr_number), flag, "--delete-branch", "--admin"],
         cwd=worktree_dir,
-        env_extra={"GITHUB_TOKEN": token, "GH_TOKEN": token},
+        env_extra={"GITHUB_TOKEN": token, "GH_TOKEN": token} if token else None,
     )

@@ -380,16 +380,21 @@ Walk the user through the README "AWS Account / One-Time Setup" steps:
 
    Then `AskUserQuestion`: "Done — signed in?" Options: "Yes, signed in", "Report an issue". On yes, verify with `gh auth status`.
 
-**Fine-grained PAT** (separate from gh auth login — used by `local/build` for git push):
+**Fine-grained PAT** (`REQUESTQUEUE_GITHUB_TOKEN` — **optional**, used by `local/build` for git push + `gh pr create`):
 
-1. Read current `REQUESTQUEUE_GITHUB_TOKEN` from `.env`. If non-empty: skip with confirmation.
-2. Otherwise:
+This token is **not needed** when the machine running `make monitor` has already run `gh auth login` — `local/build/git_ops.py` only forces `GITHUB_TOKEN`/`GH_TOKEN` env-var override when the .env value is non-empty; otherwise git/gh subprocesses inherit the parent environment and gh's keyring auth takes effect.
+
+**Decision tree:**
+
+1. Read current `REQUESTQUEUE_GITHUB_TOKEN` from `.env`. If non-empty: skip — already configured.
+2. If empty AND `gh auth status` succeeded in the previous step (Phase 3 step 1) AND the user plans to run `make monitor` on **this same machine**: **skip the PAT entirely**. Tell the user: "PAT is optional — your local `gh auth login` keyring will be used. Leaving REQUESTQUEUE_GITHUB_TOKEN empty." Move on.
+3. If empty AND the user plans cross-machine local-server (e.g. monitor runs on a Pi, VPS, or different laptop): walk through PAT creation since the remote machine won't have access to this machine's keyring:
    - Print the URL `https://github.com/settings/personal-access-tokens/new`.
-   - Explain required scopes: `Contents: Read and write` and `Pull requests: Read and write`. If they plan to enable `WORKQ_GITHUB_AUTO_MERGE`, also `Administration: Read and write` on the target repo.
-   - `AskUserQuestion`: "Set token expiration:" with options "30 days", "90 days", "1 year", "No expiration (least secure)", "Report an issue". Tell them what you suggest based on their preference.
-   - `AskUserQuestion` for the token value (the answer is the token itself).
-   - Validate by running `gh api user --hostname github.com -H "Authorization: Bearer $TOKEN"` (or similar) — if it fails, ask them to recheck and re-enter.
-   - Write `REQUESTQUEUE_GITHUB_TOKEN=<value>` to `.env`.
+   - Explain required scopes: `Contents: Read and write` and `Pull requests: Read and write` on the target repo. If they plan to enable `REQUESTQUEUE_GITHUB_AUTO_MERGE`, also `Administration: Read and write`.
+   - `AskUserQuestion`: "Set token expiration:" with options "30 days", "90 days", "1 year", "No expiration (least secure)", "Report an issue".
+   - **Don't ask for the token value via AskUserQuestion** (that puts the secret in the conversation transcript). Instead use the same clipboard pattern as Phase 2 step 3c: have the user copy the token to their clipboard, then run a script that reads from clipboard, validates with `gh api user`, and writes to `.env`. (If no such script exists yet, write one — `scripts/set_github_token.sh` is the natural shape, mirroring `aws_setup_config.sh --clip-secret`.)
+
+The decision between (2) and (3) depends on the answer to Phase 9's "where will the local-server live?" question. **Defer the PAT decision until Phase 9** — it's the right time to know whether (2) or (3) applies. Tell the user during Phase 3: "PAT decision deferred to Phase 9 (local-server location). For now, leaving REQUESTQUEUE_GITHUB_TOKEN empty — gh keyring auth will work for same-machine setups; we'll capture a PAT later if you go cross-machine."
 
 ---
 
