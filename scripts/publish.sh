@@ -95,25 +95,25 @@ if (( PROMPTS_ONLY == 0 )); then
     PARAM_OVERRIDES+=" CognitoDomainPrefix=${REQUESTQUEUE_COGNITO_DOMAIN_PREFIX}"
   fi
 
-  SAMCONFIG="${REPO_ROOT}/infra/samconfig.toml"
-  GUIDED_FLAG=""
-  if [[ ! -f "${SAMCONFIG}" ]]; then
-    info "first deploy detected — running 'sam deploy --guided'"
-    GUIDED_FLAG="--guided"
-  fi
-
   info "sam build"
   (cd "${REPO_ROOT}/infra" && sam build)
 
-  info "sam deploy"
+  info "sam deploy (non-interactive — all params supplied + --resolve-s3 for artifacts bucket)"
+  # All params required for first-and-subsequent deploys are passed explicitly,
+  # so we never need `sam deploy --guided` (which would prompt for stack name,
+  # region, IAM capability, etc. and block on stdin). `--resolve-s3` lets SAM
+  # auto-create/reuse the `aws-sam-cli-managed-default-*` artifacts bucket
+  # without an interactive bootstrap step. `--no-confirm-changeset` is the
+  # default in CI mode but stated explicitly to be safe.
   # shellcheck disable=SC2086
   (cd "${REPO_ROOT}/infra" && sam deploy \
     --stack-name "${STACK}" \
     --region "${REGION}" \
     --capabilities CAPABILITY_IAM \
     --no-fail-on-empty-changeset \
-    --parameter-overrides ${PARAM_OVERRIDES} \
-    ${GUIDED_FLAG})
+    --no-confirm-changeset \
+    --resolve-s3 \
+    --parameter-overrides ${PARAM_OVERRIDES})
 
   info "fetching stack outputs"
   raw="$(aws cloudformation describe-stacks --region "${REGION}" --stack-name "${STACK}" --query 'Stacks[0].Outputs')"

@@ -30,7 +30,7 @@ The canonical README is at `README.md`; this wizard is its executable form. When
 
 6. **Don't skip the "Report an issue" option to save tokens.** It is the entire point of this wizard's first run — discovering install bugs.
 
-7. **Interactive commands cannot be run from this side.** Claude Code's `Bash` tool does not connect user stdin to spawned processes, and the user-typed `! <cmd>` prefix has the same limitation — both will hit `EOF when reading a line` (or block forever) on any command that reads from a TTY. This includes `aws configure`, `aws configure sso`, `gh auth login`, `sam deploy --guided`, and any other command that prompts the user mid-run. Never instruct the user to use `! aws configure` — it does not work.
+7. **Interactive commands cannot be run from this side.** Claude Code's `Bash` tool does not connect user stdin to spawned processes, and the user-typed `! <cmd>` prefix has the same limitation — both will hit `EOF when reading a line` (or block forever) on any command that reads from a TTY. This includes `aws configure`, `aws configure sso`, `gh auth login`, and any other command that prompts the user mid-run. Never instruct the user to use `! aws configure` — it does not work. *(Note: `sam deploy` is NOT in this list — `scripts/publish.sh` invokes it with `--resolve-s3` and explicit `--parameter-overrides`, so it never needs `--guided` and Claude can run `make publish` directly via the `Bash` tool with a long timeout.)*
 
    **When you DO and DON'T need `!` mode for secrets:**
 
@@ -468,38 +468,21 @@ This is the big step: SAM deploy + webapp build + S3 sync + CloudFront invalidat
 1. Read `.requestqueue.outputs.json` if it exists.
 2. If it has a `webapp_url` and a `cognito_user_pool_id`: tell the user "A previous deploy exists (stack `<name>`, webapp `<url>`). Re-running `make publish` is safe and will produce a no-op CloudFormation changeset if nothing changed." Then `AskUserQuestion`: "Re-run anyway? (Recommended after `.env` changes; needed if you ran `refresh_creds.sh`.)" Options: "Yes, re-run (~1–2 min for empty changeset)", "Skip — already deployed", "Report an issue".
 
-**First-run vs. re-run detection:**
+**Run (always non-interactive — first deploy and re-deploys behave identically):**
 
-Check for `samconfig.toml` at the repo root.
-- **Absent** → first deploy → `sam deploy --guided` will prompt interactively → user must run in a separate terminal (see CRITICAL RULES item 7).
-- **Present** → SAM has saved its config → `make publish` runs non-interactively → can run via `Bash` here.
+`scripts/publish.sh` invokes `sam deploy` with `--resolve-s3` (auto-creates the SAM-managed artifacts bucket on first run, reuses on subsequent runs) and explicit `--parameter-overrides` for every required value. There's no `--guided` and no stdin prompt — Claude runs `make publish` directly via the `Bash` tool.
 
-**Run (first deploy — `samconfig.toml` absent):**
+1. Brief the user (one line): "Running `make publish`. This takes 5–10 minutes on first deploy (CloudFormation create + webapp build + S3 sync + CloudFront invalidation), 1–2 minutes on subsequent deploys (empty changeset). Output streams below."
 
-1. Brief the user: "First-deploy runs `sam deploy --guided`, which will ask several questions:
-   - **Stack Name** → enter the `REQUESTQUEUE_STACK_NAME` value from `.env` (usually `requestqueue`)
-   - **AWS Region** → enter the `REQUESTQUEUE_AWS_REGION` value (e.g. `us-east-1`)
-   - **Confirm changes before deploy** → `N` (CI-style)
-   - **Allow SAM CLI IAM role creation** → `Y`
-   - **Disable rollback** → `N`
-   - **Save arguments to configuration file** → `Y` (this writes `samconfig.toml` so future runs are non-interactive)
-   - **SAM configuration file** → accept default (`samconfig.toml`)
-   - **SAM configuration environment** → accept default (`default`)
-   "
-2. `AskUserQuestion`: "Ready to deploy?" Options: "Yes, walk me through opening a separate terminal", "Show me what `make publish` does first", "Report an issue".
-3. Instruct the user:
+2. Run via Bash. **Use a generous timeout** (`timeout: 900000` = 15 min) since first deploy can run long. If you expect it to take ≥5 min, use `run_in_background: true` and `Monitor` (or `BashOutput`) to stream progress, so you don't block on a long-running call. Either way, surface progress notes to the user (e.g. when CloudFormation events change, when sync starts, when invalidation is created).
 
-   > Open a separate terminal window, `cd` into this repo, and run:
-   > ```
-   > make publish
-   > ```
-   > Answer the SAM prompts as listed above. The full deploy takes 5–10 minutes (CloudFormation create + webapp build + S3 sync + CloudFront invalidation). When you see `Successfully created/updated stack`, return here.
+3. On success the script prints `done!` + `webapp:` and `api:` URLs. Read `.requestqueue.outputs.json` to confirm + extract:
+   - `webapp_url`
+   - `api_url`
+   - `cognito_user_pool_id`
+   - `cloudfront_distribution_id`
 
-   `AskUserQuestion`: "Done — deploy succeeded?" Options: "Yes, succeeded", "It failed (let's debug)", "Still running — check back in a minute", "Report an issue".
-
-**Run (re-deploy — `samconfig.toml` present):**
-
-1. `make publish` is non-interactive on subsequent runs. Run it directly via `Bash` here. Show progress.
+4. On failure: surface the error, classify (CloudFormation rollback? S3 sync error? CloudFront throttle?), and `AskUserQuestion`: "Debug, retry, or report an issue?"
 
 **On success (either path):**
 
