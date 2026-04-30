@@ -83,6 +83,13 @@ if (( PROMPTS_ONLY == 0 )); then
     PARAM_OVERRIDES+=" CustomDomain=${REQUESTQUEUE_CUSTOM_DOMAIN}"
     [[ -n "${REQUESTQUEUE_CUSTOM_DOMAIN_CERT_ARN:-}" ]] || err "REQUESTQUEUE_CUSTOM_DOMAIN is set but REQUESTQUEUE_CUSTOM_DOMAIN_CERT_ARN is not"
     PARAM_OVERRIDES+=" CustomDomainCertArn=${REQUESTQUEUE_CUSTOM_DOMAIN_CERT_ARN}"
+    # Optional subdomain overrides — default to "work" / "api" if unset.
+    if [[ -n "${REQUESTQUEUE_WEBAPP_SUBDOMAIN:-}" ]]; then
+      PARAM_OVERRIDES+=" WebappSubdomain=${REQUESTQUEUE_WEBAPP_SUBDOMAIN}"
+    fi
+    if [[ -n "${REQUESTQUEUE_API_SUBDOMAIN:-}" ]]; then
+      PARAM_OVERRIDES+=" ApiSubdomain=${REQUESTQUEUE_API_SUBDOMAIN}"
+    fi
   fi
   if [[ -n "${REQUESTQUEUE_COGNITO_DOMAIN_PREFIX:-}" ]]; then
     PARAM_OVERRIDES+=" CognitoDomainPrefix=${REQUESTQUEUE_COGNITO_DOMAIN_PREFIX}"

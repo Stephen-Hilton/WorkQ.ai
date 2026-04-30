@@ -19,12 +19,22 @@ Parameters:
   CustomDomain:
     Type: String
     Default: ""
-    Description: Apex domain (e.g. example.com). Empty = use AWS-default URLs. If set, webapp = work.<domain>, API = api.<domain>.
+    Description: Apex (or any) domain to anchor custom URLs (e.g. example.com). Empty = use AWS-default URLs. If set, webapp = <WebappSubdomain>.<CustomDomain>, API = <ApiSubdomain>.<CustomDomain>.
+
+  WebappSubdomain:
+    Type: String
+    Default: work
+    Description: Subdomain prefix for the webapp. Default "work" → work.<CustomDomain>. Can be multi-label (e.g. "app.beta") to nest deeper. Only used when CustomDomain is set.
+
+  ApiSubdomain:
+    Type: String
+    Default: api
+    Description: Subdomain prefix for the API. Default "api" → api.<CustomDomain>. Can be multi-label (e.g. "api.workq") to nest deeper. Only used when CustomDomain is set.
 
   CustomDomainCertArn:
     Type: String
     Default: ""
-    Description: ACM cert ARN in us-east-1 covering both work.<domain> and api.<domain>. Required if CustomDomain is set.
+    Description: ACM cert ARN in us-east-1 covering both <WebappSubdomain>.<CustomDomain> and <ApiSubdomain>.<CustomDomain>. Required if CustomDomain is set.
 
   CognitoDomainPrefix:
     Type: String
@@ -369,7 +379,7 @@ Resources:
         PriceClass: PriceClass_100
         Aliases: !If
           - HasCustomDomain
-          - [!Sub "work.${CustomDomain}"]
+          - [!Sub "${WebappSubdomain}.${CustomDomain}"]
           - !Ref AWS::NoValue
         ViewerCertificate: !If
           - HasCustomDomain
@@ -432,7 +442,7 @@ Resources:
     Type: AWS::ApiGateway::DomainName
     Condition: HasCustomDomain
     Properties:
-      DomainName: !Sub "api.${CustomDomain}"
+      DomainName: !Sub "${ApiSubdomain}.${CustomDomain}"
       RegionalCertificateArn: !Ref CustomDomainCertArn
       EndpointConfiguration:
         Types:
@@ -457,14 +467,14 @@ Outputs:
     Description: Webapp URL (custom domain if set, else CloudFront default)
     Value: !If
       - HasCustomDomain
-      - !Sub "https://work.${CustomDomain}"
+      - !Sub "https://${WebappSubdomain}.${CustomDomain}"
       - !Sub "https://${WebappDistribution.DomainName}"
 
   ApiUrl:
     Description: API base URL (custom domain if set, else API Gateway default)
     Value: !If
       - HasCustomDomain
-      - !Sub "https://api.${CustomDomain}"
+      - !Sub "https://${ApiSubdomain}.${CustomDomain}"
       - !Sub "https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/prod"
 
   CognitoUserPoolId:
@@ -497,10 +507,10 @@ Outputs:
 
   ApiCustomDomainTarget:
     Condition: HasCustomDomain
-    Description: CNAME target for api.<domain>
+    Description: CNAME target for <ApiSubdomain>.<CustomDomain>
     Value: !GetAtt ApiCustomDomain.RegionalDomainName
 
   WebappCustomDomainTarget:
     Condition: HasCustomDomain
-    Description: CNAME target for work.<domain>
+    Description: CNAME target for <WebappSubdomain>.<CustomDomain>
     Value: !GetAtt WebappDistribution.DomainName

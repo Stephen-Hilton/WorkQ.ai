@@ -264,7 +264,14 @@ Walk the user through the README "AWS Account / One-Time Setup" steps:
 
    The user has `AdministratorAccess` on the deploy IAM profile, so **Claude provisions the ACM certificate via the AWS CLI** — don't make the user navigate to ACM in the console. The user's only manual step (and only if their DNS isn't in Route 53) is adding a CNAME record in their DNS provider's UI.
 
-   **a. Get the base domain.** `AskUserQuestion`: "What's the base domain? (no `https://`, no subdomain — just the apex like `paydaay.com`)" Provide a couple of plausible suggestions if you have signal (e.g. inferred from the user's email domain), plus "Report an issue". The user picks auto-Other to type their domain inline.
+   **a. Get the URL(s).** `AskUserQuestion`: "What URLs? You can answer in any of these forms:" with example options like "Just the base domain (e.g. `paydaay.com`) → I'll use the default `work.<base>` + `api.<base>` layout", "Base domain + custom subdomains (I'll ask)", "Both URLs explicitly (e.g. `workq.hilton.zone` + `api.workq.hilton.zone`) — paste them and I'll derive the rest", plus "Report an issue". User picks auto-Other to type freely.
+
+   **Parse what they typed** to derive three values: `CUSTOM_DOMAIN` (the registered/Route-53-able zone), `WEBAPP_SUBDOMAIN` (subdomain prefix for the webapp), `API_SUBDOMAIN` (subdomain prefix for the API). Examples:
+   - User types `paydaay.com` → CUSTOM_DOMAIN=`paydaay.com`, WEBAPP_SUBDOMAIN=`work` (default), API_SUBDOMAIN=`api` (default).
+   - User types `workq.hilton.zone` and `api.workq.hilton.zone` → CUSTOM_DOMAIN=`hilton.zone`, WEBAPP_SUBDOMAIN=`workq`, API_SUBDOMAIN=`api.workq`. (Find the longest common DNS suffix that matches a Route 53 hosted zone they own; the leftover labels are the subdomains.)
+   - User types `https://app.example.com` and `https://api.example.com` → strip protocol, CUSTOM_DOMAIN=`example.com`, WEBAPP_SUBDOMAIN=`app`, API_SUBDOMAIN=`api`.
+
+   Confirm the parse back to the user in one line ("Parsed: CUSTOM_DOMAIN=hilton.zone, WEBAPP_SUBDOMAIN=workq, API_SUBDOMAIN=api.workq → webapp at workq.hilton.zone, API at api.workq.hilton.zone — correct?") and only proceed if it matches.
 
    **b. Detect Route 53 hosting.** Run:
       ```
@@ -273,17 +280,17 @@ Walk the user through the README "AWS Account / One-Time Setup" steps:
       ```
       If a zone ID is returned → Claude can fully automate DNS validation. If empty → the user manages DNS elsewhere and will need to add validation CNAMEs manually.
 
-   **c. Request the wildcard certificate.**
+   **c. Request the certificate.** Use specific names for the webapp + API hosts (not a wildcard) — wildcards in ACM cover only one DNS label, so multi-label subdomains like `api.workq.hilton.zone` need explicit SANs:
       ```
       aws acm request-certificate \
-        --domain-name "*.<domain>" \
-        --subject-alternative-names "<domain>" \
+        --domain-name "<webapp_subdomain>.<base>" \
+        --subject-alternative-names "<api_subdomain>.<base>" \
         --validation-method DNS \
         --region us-east-1 \
         --profile requestqueue \
-        --tags Key=Name,Value=requestqueue-<domain>
+        --tags Key=Name,Value=requestqueue-<base>
       ```
-      Capture the returned `CertificateArn`.
+      For the default `work`/`api` layout you can use a wildcard (`--domain-name "*.<base>" --subject-alternative-names "<base>"`) instead — fewer validation CNAMEs. Decide based on how many DNS labels the subdomains have. Capture the returned `CertificateArn`.
 
    **d. Fetch the validation CNAMEs.** ACM populates these asynchronously. Poll with a brief delay:
       ```
@@ -313,10 +320,13 @@ Walk the user through the README "AWS Account / One-Time Setup" steps:
       ```
       Until status is `ISSUED` (typical: 1–5 min Route 53 / 5–30 min third-party DNS). On `FAILED`, surface the reason from `FailureReason` and `AskUserQuestion` retry/skip/report.
 
-   **g. Write to `.env`** (idempotent strip-then-append):
+   **g. Write to `.env`** (idempotent strip-then-append). Always write `CUSTOM_DOMAIN` + `CUSTOM_DOMAIN_CERT_ARN`. Only write the subdomain overrides if they differ from the defaults `work` / `api`:
       ```
-      REQUESTQUEUE_CUSTOM_DOMAIN=<domain>
+      REQUESTQUEUE_CUSTOM_DOMAIN=<base>
       REQUESTQUEUE_CUSTOM_DOMAIN_CERT_ARN=<arn>
+      # only if non-default:
+      REQUESTQUEUE_WEBAPP_SUBDOMAIN=<webapp_subdomain>
+      REQUESTQUEUE_API_SUBDOMAIN=<api_subdomain>
       ```
 
    **h. Heads-up to user:** "Custom domain `<domain>` is provisioned. After Phase 7 deploy, you'll need DNS records for `work.<domain>` (CloudFront) and `api.<domain>` (API Gateway) — these come from `.requestqueue.outputs.json`. If you're in Route 53, I'll add them automatically post-deploy. Otherwise you'll add them manually."

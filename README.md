@@ -35,7 +35,7 @@ I use this for all of my AI projects, usually by merging it into my apps' admin 
 - `jq` (`brew install jq`) — used by the deploy + whitelist scripts
 - An AWS account
 - A GitHub repo you want claude to operate on (and a fine-grained PAT — see below)
-- *Optional:* a custom domain + an ACM certificate in `us-east-1` covering both `work.<domain>` and `api.<domain>` (or a wildcard `*.<domain>`)
+- *Optional:* a custom domain + an ACM certificate in `us-east-1` covering both the webapp and API hostnames. Default layout is `work.<domain>` + `api.<domain>` (a wildcard `*.<domain>` covers both); subdomain prefixes are configurable via `REQUESTQUEUE_WEBAPP_SUBDOMAIN` and `REQUESTQUEUE_API_SUBDOMAIN` for non-standard layouts (e.g. `workq.<domain>` + `api.workq.<domain>`).
 
 <br>
 
