@@ -52,6 +52,23 @@ def _matches(email: str, whitelist: list[str]) -> bool:
 
 def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
     email = (event.get("request") or {}).get("userAttributes", {}).get("email", "")
+
+    # Bypass the whitelist for the internal service-user. This account is
+    # bootstrapped by the `Custom::ServiceUser` custom resource during
+    # `sam deploy` and used by the local-server side to authenticate to the
+    # API. It's NOT a user-facing signup. Cognito's AdminCreateUser still
+    # routes through the PreSignup trigger (even with MessageAction=SUPPRESS),
+    # so we have to allow-list this specific email here — otherwise the
+    # whole stack creation fails with `PreSignUp failed with error
+    # email '<service-user>' not in whitelist`. SERVICE_USER_EMAIL is set
+    # in template.yaml Globals, so every function gets it in its env.
+    service_user_email = os.environ.get("SERVICE_USER_EMAIL", "").strip().lower()
+    if service_user_email and email.strip().lower() == service_user_email:
+        response = event.setdefault("response", {})
+        response["autoConfirmUser"] = True
+        response["autoVerifyEmail"] = True
+        return event
+
     whitelist = _whitelist()
     if not _matches(email, whitelist):
         # Cognito treats a raised exception as a sign-up rejection.
