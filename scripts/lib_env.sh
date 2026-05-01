@@ -10,8 +10,13 @@
 # from the REQUESTQUEUE_* equivalents in .env (if present), so the user
 # doesn't need to also `aws configure` or `export AWS_PROFILE=...` separately.
 #
-# Lookup precedence: existing AWS_* env var > REQUESTQUEUE_AWS_* from .env >
-# unset (let aws CLI fall back to ~/.aws/credentials, instance role, etc.).
+# Precedence: REQUESTQUEUE_AWS_* in .env OVERRIDES any AWS_* values already
+# in the shell environment. The .env file is the authoritative source for
+# THIS project — without override, a stale `AWS_PROFILE=other-account` in
+# the user's shell would silently misroute deploys. To deploy to a
+# different account, edit .env (don't `export AWS_PROFILE=…` in the shell).
+# When REQUESTQUEUE_AWS_* is unset, any existing AWS_* values pass through
+# unchanged.
 
 # shellcheck disable=SC2120
 load_env() {
@@ -21,20 +26,27 @@ load_env() {
     set -a; source "${env_file}"; set +a
   fi
 
-  # Translate REQUESTQUEUE_AWS_* → AWS_* if the standard one isn't already set.
-  : "${AWS_REGION:=${REQUESTQUEUE_AWS_REGION:-}}"
-  : "${AWS_DEFAULT_REGION:=${REQUESTQUEUE_AWS_REGION:-}}"
-  : "${AWS_PROFILE:=${REQUESTQUEUE_AWS_PROFILE:-}}"
-  : "${AWS_ACCESS_KEY_ID:=${REQUESTQUEUE_AWS_ACCESS_KEY_ID:-}}"
-  : "${AWS_SECRET_ACCESS_KEY:=${REQUESTQUEUE_AWS_SECRET_ACCESS_KEY:-}}"
-  : "${AWS_SESSION_TOKEN:=${REQUESTQUEUE_AWS_SESSION_TOKEN:-}}"
+  # Translate REQUESTQUEUE_AWS_* → AWS_* — .env values OVERRIDE shell env.
+  # Use `if [[ ]]; then ...; fi` (NOT `[[ ]] && export`) — under `set -e`
+  # in the calling script, a `[[ ]] && cmd` chain returns the failed [[ ]]
+  # exit code when the variable is empty, which propagates as a function
+  # return code of 1 and silently kills the caller.
+  if [[ -n "${REQUESTQUEUE_AWS_REGION:-}" ]]; then
+    export AWS_REGION="${REQUESTQUEUE_AWS_REGION}"
+    export AWS_DEFAULT_REGION="${REQUESTQUEUE_AWS_REGION}"
+  fi
+  if [[ -n "${REQUESTQUEUE_AWS_PROFILE:-}" ]]; then
+    export AWS_PROFILE="${REQUESTQUEUE_AWS_PROFILE}"
+  fi
+  if [[ -n "${REQUESTQUEUE_AWS_ACCESS_KEY_ID:-}" ]]; then
+    export AWS_ACCESS_KEY_ID="${REQUESTQUEUE_AWS_ACCESS_KEY_ID}"
+  fi
+  if [[ -n "${REQUESTQUEUE_AWS_SECRET_ACCESS_KEY:-}" ]]; then
+    export AWS_SECRET_ACCESS_KEY="${REQUESTQUEUE_AWS_SECRET_ACCESS_KEY}"
+  fi
+  if [[ -n "${REQUESTQUEUE_AWS_SESSION_TOKEN:-}" ]]; then
+    export AWS_SESSION_TOKEN="${REQUESTQUEUE_AWS_SESSION_TOKEN}"
+  fi
 
-  # Don't export empty values — some AWS SDKs treat empty AWS_PROFILE as a
-  # profile named "" and break.
-  [[ -n "${AWS_REGION}" ]] && export AWS_REGION
-  [[ -n "${AWS_DEFAULT_REGION}" ]] && export AWS_DEFAULT_REGION
-  [[ -n "${AWS_PROFILE}" ]] && export AWS_PROFILE
-  [[ -n "${AWS_ACCESS_KEY_ID}" ]] && export AWS_ACCESS_KEY_ID
-  [[ -n "${AWS_SECRET_ACCESS_KEY}" ]] && export AWS_SECRET_ACCESS_KEY
-  [[ -n "${AWS_SESSION_TOKEN}" ]] && export AWS_SESSION_TOKEN
+  return 0
 }
