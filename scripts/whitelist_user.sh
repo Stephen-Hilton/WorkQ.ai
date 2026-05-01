@@ -79,7 +79,11 @@ to_array() {
 }
 to_csv() { paste -sd, -; }
 
-mapfile -t entries < <(to_array "${current}")
+# `mapfile` is bash 4+; macOS ships bash 3.2. Use a portable read loop.
+entries=()
+while IFS= read -r line; do
+  entries+=("${line}")
+done < <(to_array "${current}")
 
 contains() {
   local needle="$1"
