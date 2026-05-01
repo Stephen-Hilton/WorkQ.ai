@@ -72,12 +72,16 @@ sam-sync:
 dev:
 	cd ui/webapp && pnpm run dev
 
+# The monitor process needs REQUESTQUEUE_* env vars from .env, and must
+# NOT inherit a stale AWS_PROFILE from the user's shell (boto3 fails fast
+# at Session construction if AWS_PROFILE references a missing profile,
+# even though the monitor only makes unauthenticated Cognito calls).
 monitor:
-	cd local && uv run python -m monitor
+	@bash -c 'set -a; source .env; set +a; unset AWS_PROFILE; cd local && uv run python -m monitor'
 
 monitor-bg:
-	mkdir -p local/logs
-	cd local && nohup uv run python -m monitor >> logs/monitor.stdout.log 2>&1 &
+	@mkdir -p local/logs
+	@bash -c 'set -a; source .env; set +a; unset AWS_PROFILE; cd local && nohup uv run python -m monitor >> logs/monitor.stdout.log 2>&1 &'
 	@echo "monitor started in background; tail -f local/logs/monitor.log"
 
 clean:

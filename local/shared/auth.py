@@ -95,10 +95,14 @@ class AuthenticatedSession:
 
     def _absorb(self, resp: dict[str, Any], *, keep_refresh: bool = False) -> None:
         result = resp.get("AuthenticationResult") or {}
-        access = result.get("AccessToken")
-        if not access:
+        # API Gateway's Cognito User Pools authorizer requires the JWT to
+        # have an `aud` (audience) claim. Cognito IdTokens have `aud=<client-id>`;
+        # AccessTokens omit `aud` (they expose `client_id` instead). Send the
+        # IdToken so authorizer validation succeeds.
+        token = result.get("IdToken")
+        if not token:
             raise RuntimeError(f"unexpected Cognito response: {resp}")
-        self._access_token = access
+        self._access_token = token
         # Refresh tokens come back only on initial login.
         new_refresh = result.get("RefreshToken")
         if new_refresh:
